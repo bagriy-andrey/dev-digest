@@ -4,6 +4,13 @@ Local-first AI pull-request review. Add a PR → run an agent review on it.
 This file loads every session: keep it ≤100 lines. Depth lives in the linked
 docs — don't duplicate them here.
 
+## Session protocol — insights loop (run the `engineering-insights` skill)
+- START: the moment a request names or implies a module, READ that module's `insights.md`
+  (`server/`, `client/`, `reviewer-core/`, `e2e/`, or root for cross-cutting) BEFORE any work;
+  treat it as high-confidence guidance unless told otherwise.
+- END: run `/engineering-insights`. Append ONLY a substantive, non-obvious learning that isn't
+  already there (read first, dedup). If nothing qualifies, write nothing — don't skip the check.
+
 ## Stack
 Node ≥22 · pnpm ≥10 · TypeScript (path aliases, no cross-package publish).
 Fastify 5 · Drizzle ORM · Postgres + pgvector · Next.js 15 · React 19 · Zod.

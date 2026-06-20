@@ -1,4 +1,20 @@
 # reviewer-core — insights
 
-> Append one line per non-obvious fact learned while working in this module.
-> Format: `- <fact> (why it bit us / where).`  Keep it a log, not prose.
+> Durable, non-obvious learnings for `@devdigest/reviewer-core` (the pure review engine:
+> diff → prompt → LLM → grounded findings; no I/O). Maintained via the `engineering-insights`
+> skill: append-only, deduplicated, substance only. Read before working; empty sections are
+> expected, not a bug. Cross-package facts go in the repo-root `insights.md`.
+
+## What Works
+
+## What Doesn't Work
+
+## Codebase Patterns
+
+## Tool & Library Notes
+
+## Recurring Errors & Fixes
+
+## Session Notes
+
+## Open Questions

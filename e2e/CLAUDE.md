@@ -31,4 +31,4 @@ Deterministic browser end-to-end flows for the web app, driven by Vercel
 - `e2e/README.md` — how a flow works, env knobs, coverage table (source of truth).
 - `specs/*.flow.json` — read when adding/adjusting a flow; copy the nearest one as a template.
 - `e2e/docs/` — read when … (deep notes; currently empty).
-- `e2e/insights.md` — read when a flow is flaky/failing; APPEND a line after a non-obvious fix.
+- `e2e/insights.md` — READ before working here; APPEND an insight via `/engineering-insights`.

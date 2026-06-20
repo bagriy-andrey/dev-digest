@@ -42,4 +42,4 @@ first; depth is in `server/README.md`.
 - `../docs/agent-prompts/` — read when editing built-in agents' system prompts or the seed.
 - `server/docs/` — read when … (deep design notes; currently empty).
 - `server/specs/` — read BEFORE implementing a feature that has a spec here.
-- `server/insights.md` — read when debugging this module; APPEND a line after a non-obvious fix.
+- `server/insights.md` — READ before working here; APPEND an insight via `/engineering-insights`.

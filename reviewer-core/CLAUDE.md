@@ -31,4 +31,4 @@ The pure review engine: **diff → prompt → LLM → grounded findings**. Depth
 - `../server/src/modules/reviews/run-executor.ts` — read to see how the server feeds + persists this engine.
 - `reviewer-core/docs/` — read when … (deep design notes; currently empty).
 - `reviewer-core/specs/` — read BEFORE implementing a spec'd engine change.
-- `reviewer-core/insights.md` — read when debugging the engine; APPEND a line after a non-obvious fix.
+- `reviewer-core/insights.md` — READ before working here; APPEND an insight via `/engineering-insights`.

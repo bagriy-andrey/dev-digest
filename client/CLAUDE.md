@@ -31,4 +31,4 @@ Next.js 15 App Router + React 19, data via TanStack Query. Depth: `client/README
 - `src/vendor/ui/README.md` — read when reaching for a UI primitive before building a new one.
 - `client/docs/` — read when … (deep design notes; currently empty).
 - `client/specs/` — read BEFORE implementing a feature/screen that has a spec here.
-- `client/insights.md` — read when debugging this module; APPEND a line after a non-obvious fix.
+- `client/insights.md` — READ before working here; APPEND an insight via `/engineering-insights`.
