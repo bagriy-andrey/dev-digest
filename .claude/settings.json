@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/inject-insights.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "A coding session is ending. Apply the engineering-insights skill to capture learnings before stopping: (1) identify which module(s) were touched — server/, client/, reviewer-core/, e2e/, or the repo root for cross-cutting facts; (2) READ that module's insights.md; (3) if this session produced a substantive, NON-OBVIOUS learning that is NOT already recorded there, append it under the correct one of the 7 sections (dedup first; substantive-only; append-only; datestamp Session Notes entries). If nothing qualifies, change nothing. Only ever APPEND to the module's insights.md using Edit — never overwrite it, and never modify any other file (especially other skills, settings, hooks, or source). Return 'approve' to allow stopping, or 'block' with a one-line reason naming the single learning still worth capturing.",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
