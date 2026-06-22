@@ -129,6 +129,21 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
+    // Latest COMPLETED run's USD cost per PR for the list's cost column. Cost
+    // lives on agent_runs (not reviews), so it needs its own latest-row lookup;
+    // null until a run completes. Mirrors the latest-score block above.
+    const latestCostByPr = new Map<string, number | null>();
+    if (prIds.length > 0) {
+      const runRows = await container.db
+        .select({ prId: t.agentRuns.prId, costUsd: t.agentRuns.costUsd, ranAt: t.agentRuns.ranAt })
+        .from(t.agentRuns)
+        .where(and(inArray(t.agentRuns.prId, prIds), eq(t.agentRuns.status, 'done')))
+        .orderBy(desc(t.agentRuns.ranAt));
+      for (const rn of runRows) {
+        if (rn.prId && !latestCostByPr.has(rn.prId)) latestCostByPr.set(rn.prId, rn.costUsd);
+      }
+    }
+
     const now = Date.now();
     return rows.map((r) => {
       const review = latestReviewByPr.get(r.id);
@@ -153,6 +168,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
+        cost_usd: latestCostByPr.get(r.id) ?? null,
       };
     });
   });
