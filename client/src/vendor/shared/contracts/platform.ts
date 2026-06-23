@@ -152,6 +152,20 @@ export type Repo = z.infer<typeof Repo>;
 
 // ---- Pull requests ----
 export const PrStatus = z.enum(['needs_review', 'reviewed', 'stale', 'open', 'closed', 'merged']);
+
+/** Slim finding used in the PR-list tooltip (no action timestamps, no suggestion). */
+export const PrFindingSummary = z.object({
+  id: z.string(),
+  severity: z.string(),
+  category: z.string(),
+  title: z.string(),
+  file: z.string(),
+  start_line: z.number().int(),
+  end_line: z.number().int(),
+  confidence: z.number(),
+  rationale: z.string(),
+});
+export type PrFindingSummary = z.infer<typeof PrFindingSummary>;
 export type PrStatus = z.infer<typeof PrStatus>;
 
 export const PrMeta = z.object({
@@ -170,6 +184,12 @@ export const PrMeta = z.object({
   updated_at: z.string().nullish(),
   // Latest-review score (list endpoint only; null/absent until reviewed).
   score: z.number().int().nullish(),
+  // Latest COMPLETED run's USD cost (list endpoint only; null until a run finishes).
+  cost_usd: z.number().nullish(),
+  // Per-severity finding counts across all reviews for this PR (list endpoint only).
+  findings_by_severity: z.record(z.string(), z.number().int()).nullish(),
+  // Top findings (sorted by severity, capped) for the list tooltip.
+  findings: z.array(PrFindingSummary).nullish(),
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 

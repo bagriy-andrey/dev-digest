@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
+import type { PrMeta, PrDetail, GitHubClient, PrReviewComment, PrFindingSummary } from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
@@ -113,8 +113,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
 
     // Latest-review SCORE per PR for the list's score ring. Computed on read
     // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
-    // not surfaced on the list — findings live on the PR detail page.)
+    // grouping is cheap.
     const prIds = rows.map((r) => r.id);
     const latestReviewByPr = new Map<string, { score: number | null }>();
     if (prIds.length > 0) {
@@ -126,6 +125,73 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       // Rows are newest-first → first seen per PR is the latest review.
       for (const rv of reviewRows) {
         if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, { score: rv.score });
+      }
+    }
+
+    // Per-severity FINDINGS count + slim finding list per PR (for list tooltip).
+    const findingsBySeverityByPr = new Map<string, Record<string, number>>();
+    const findingsByPr = new Map<string, PrFindingSummary[]>();
+    const SEV_WEIGHT: Record<string, number> = { CRITICAL: 0, WARNING: 1, SUGGESTION: 2 };
+    const MAX_FINDINGS_TOOLTIP = 10;
+    if (prIds.length > 0) {
+      const findingRows = await container.db
+        .select({
+          prId: t.reviews.prId,
+          id: t.findings.id,
+          severity: t.findings.severity,
+          category: t.findings.category,
+          title: t.findings.title,
+          file: t.findings.file,
+          startLine: t.findings.startLine,
+          endLine: t.findings.endLine,
+          confidence: t.findings.confidence,
+          rationale: t.findings.rationale,
+        })
+        .from(t.findings)
+        .innerJoin(t.reviews, eq(t.findings.reviewId, t.reviews.id))
+        .where(and(inArray(t.reviews.prId, prIds), eq(t.reviews.kind, 'review')));
+      for (const row of findingRows) {
+        // Severity counts
+        if (!findingsBySeverityByPr.has(row.prId)) findingsBySeverityByPr.set(row.prId, {});
+        const m = findingsBySeverityByPr.get(row.prId)!;
+        m[row.severity] = (m[row.severity] ?? 0) + 1;
+        // Findings list
+        if (!findingsByPr.has(row.prId)) findingsByPr.set(row.prId, []);
+        findingsByPr.get(row.prId)!.push({
+          id: row.id,
+          severity: row.severity,
+          category: row.category,
+          title: row.title,
+          file: row.file,
+          start_line: row.startLine,
+          end_line: row.endLine,
+          confidence: row.confidence,
+          rationale: row.rationale,
+        });
+      }
+      // Sort by severity and cap
+      for (const [prId, list] of findingsByPr) {
+        findingsByPr.set(
+          prId,
+          list
+            .sort((a, b) => (SEV_WEIGHT[a.severity] ?? 9) - (SEV_WEIGHT[b.severity] ?? 9))
+            .slice(0, MAX_FINDINGS_TOOLTIP),
+        );
+      }
+    }
+
+    // Latest COMPLETED run's USD cost per PR for the list's cost column. Cost
+    // lives on agent_runs (not reviews), so it needs its own latest-row lookup;
+    // null until a run completes. Mirrors the latest-score block above.
+    const latestCostByPr = new Map<string, number | null>();
+    if (prIds.length > 0) {
+      const runRows = await container.db
+        .select({ prId: t.agentRuns.prId, costUsd: t.agentRuns.costUsd, ranAt: t.agentRuns.ranAt })
+        .from(t.agentRuns)
+        .where(and(inArray(t.agentRuns.prId, prIds), eq(t.agentRuns.status, 'done')))
+        .orderBy(desc(t.agentRuns.ranAt));
+      for (const rn of runRows) {
+        if (rn.prId && !latestCostByPr.has(rn.prId)) latestCostByPr.set(rn.prId, rn.costUsd);
       }
     }
 
@@ -153,6 +219,9 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
+        cost_usd: latestCostByPr.get(r.id) ?? null,
+        findings_by_severity: findingsBySeverityByPr.get(r.id) ?? null,
+        findings: findingsByPr.get(r.id) ?? null,
       };
     });
   });
