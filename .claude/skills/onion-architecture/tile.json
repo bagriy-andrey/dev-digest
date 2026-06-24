@@ -1,0 +1,11 @@
+{
+  "name": "onion-architecture",
+  "version": "0.1.0",
+  "private": true,
+  "summary": "Enforces Onion Architecture (Ports & Adapters / Clean Architecture) for DevDigest backend modules. Use when adding a new feature module, refactoring a service, designing a repository, wiring a new adapter, or deciding where a piece of logic belongs. Trigger terms: onion, clean architecture, hexagonal, ports, adapters, dependency rule, domain layer, application layer, repository pattern, DI container, composition root.",
+  "skills": {
+    "onion-architecture": {
+      "path": "SKILL.md"
+    }
+  }
+}
