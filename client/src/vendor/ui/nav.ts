@@ -23,7 +23,15 @@ export const NAV: NavGroup[] = [
     section: "WORKSPACE",
     items: [
       { key: "pulls", label: "Pull Requests", icon: "GitPullRequest", href: "/repos/:repoId/pulls", gKey: "p" },
-      { key: "agents", label: "Agents", icon: "Cpu", href: "/agents", gKey: "a" },
+    ],
+  },
+  {
+    section: "SKILLS LAB",
+    items: [
+      { key: "skills",         label: "Skills",         icon: "Sparkles",  href: "/skills",    gKey: "s" },
+      { key: "agents",         label: "Agents",         icon: "Cpu",       href: "/agents",    gKey: "a" },
+      { key: "conventions",    label: "Conventions",    icon: "ListChecks", href: "/conventions"         },
+      { key: "eval-dashboard", label: "Eval Dashboard", icon: "BarChart",  href: "/eval"                 },
     ],
   },
 ];

@@ -6,6 +6,8 @@ import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
+  TEST_QUALITY_REVIEWER_PROMPT,
+  API_CONTRACT_REVIEWER_PROMPT,
 } from './seed-prompts.js';
 
 /** Default provider/model for the built-in reviewer agents. */
@@ -212,12 +214,164 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       createdBy: userId,
     },
   ];
-  for (const a of seedAgents) {
+  const newAgents: Array<typeof t.agents.$inferInsert> = [
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description: 'Checks for uncovered branches, missing corner cases, over-mocking, and flakey patterns.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
+    {
+      workspaceId,
+      name: 'API Contract Reviewer',
+      description: 'Detects breaking changes to route signatures, response shapes, and status codes.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: API_CONTRACT_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
+  ];
+
+  for (const a of [...seedAgents, ...newAgents]) {
     const [existing] = await db
       .select()
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
+  }
+
+  // ---- starter skills ----
+  const seedSkills: Array<typeof t.skills.$inferInsert & { agentName?: string }> = [
+    {
+      workspaceId,
+      name: 'pr-quality-rubric',
+      description: 'Rubric for evaluating overall PR quality across correctness, tests, and clarity.',
+      type: 'rubric',
+      source: 'manual',
+      body: `# PR Quality Rubric
+
+Evaluate the pull request against the following dimensions. For each, return a
+finding only when the issue is **worth the author's time** — aim for 5 high-signal
+findings, not 50.
+
+## Correctness
+- Does the change do what the PR description claims?
+- Are edge cases (empty input, nulls, concurrency) handled?
+
+## Security
+- Any secrets, tokens, or credentials in the diff?
+- Untrusted input reaching a sink (SQL, shell, fetch)?
+
+## Tests
+- New branches covered by assertions?
+- Are tests meaningful (not just snapshot churn)?
+
+## Scope
+- Does the diff stay within the stated intent?
+- Flag out-of-scope changes separately rather than blocking.`,
+      enabled: true,
+      version: 1,
+      agentName: 'General Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'test-coverage-nudge',
+      description: 'Suggests covering new branches when tests are absent or superficial.',
+      type: 'custom',
+      source: 'manual',
+      body: `# Test Coverage Nudge
+
+When the diff introduces new branches (if/else, ternary, switch, early return, throw),
+check whether the test files in the same PR cover those branches.
+
+Flag (WARNING) when:
+- A new function has no test at all.
+- A branching statement has only the happy-path covered.
+- A thrown error is never asserted.
+
+Approve the test coverage dimension when every meaningful branch has at least one assertion.`,
+      enabled: true,
+      version: 1,
+      agentName: 'Test Quality Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'api-contract-gate',
+      description: 'Blocks PRs that silently break existing API callers.',
+      type: 'rubric',
+      source: 'manual',
+      body: `# API Contract Gate
+
+Before approving, verify that the diff does NOT:
+1. Remove or rename a field from an existing response body.
+2. Change an HTTP method or route path without a version bump.
+3. Change a success status code (e.g. 200 → 204) without documentation.
+4. Make a previously optional request field required.
+5. Widen nullability of a response field that callers treat as guaranteed.
+
+If any of the above is true, return a CRITICAL finding naming the route and the broken contract.
+Purely additive changes (new optional fields, new routes) do not need to be flagged.`,
+      enabled: true,
+      version: 1,
+      agentName: 'API Contract Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'secret-leakage-gate',
+      description: 'Detects sk_live, service_role, and NEXT_PUBLIC_ keys hardcoded in the diff.',
+      type: 'security',
+      source: 'community',
+      body: `# Secret Leakage Gate
+
+Flag any of the following patterns in the diff as CRITICAL:
+- Hardcoded API keys: sk_live, rk_live, service_role, NEXT_PUBLIC_ prefixed secrets
+- Bearer tokens or JWTs appearing in non-test source files
+- Passwords or connection strings with credentials embedded
+- Private keys (-----BEGIN * PRIVATE KEY-----)
+
+Do NOT flag:
+- Placeholder values like "your-key-here", "TODO", "REPLACE_ME"
+- Keys appearing only in .env.example or documentation comments
+- Test fixtures that are clearly fake (e.g. "test_sk_fake_key")`,
+      enabled: true,
+      version: 1,
+      agentName: 'Security Reviewer',
+    },
+  ];
+
+  for (const { agentName, ...skill } of seedSkills) {
+    const [existingSkill] = await db
+      .select()
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, skill.name)));
+
+    let skillId: string;
+    if (existingSkill) {
+      skillId = existingSkill.id;
+    } else {
+      const [inserted] = await db.insert(t.skills).values(skill).returning({ id: t.skills.id });
+      skillId = inserted!.id;
+    }
+
+    if (agentName) {
+      const [agent] = await db
+        .select()
+        .from(t.agents)
+        .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, agentName)));
+      if (agent) {
+        await db
+          .insert(t.agentSkills)
+          .values({ agentId: agent.id, skillId, order: 0, enabled: true })
+          .onConflictDoNothing();
+      }
+    }
   }
 
   return { workspaceId, userId };

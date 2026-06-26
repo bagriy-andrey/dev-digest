@@ -12,7 +12,7 @@ import { AgentEditor } from "./_components/AgentEditor";
 import { useAgents, useAgent, useUpdateAgent } from "../../../lib/hooks/agents";
 import { ApiError } from "../../../lib/api";
 
-const VALID_TABS = ["config"];
+const VALID_TABS = ["config", "skills", "evals", "stats", "ci"];
 
 export default function AgentEditorPage() {
   const params = useParams<{ id: string }>();
@@ -80,7 +80,7 @@ export default function AgentEditorPage() {
             </div>
           </div>
           <div style={{ flex: 1, overflow: "auto", padding: "0 12px 12px" }}>
-            {(agents ?? []).map((a) => (
+            {[...(agents ?? [])].sort((a, b) => a.name.localeCompare(b.name)).map((a) => (
               <AgentCard
                 key={a.id}
                 ag={a}

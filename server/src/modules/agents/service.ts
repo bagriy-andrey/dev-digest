@@ -135,10 +135,10 @@ export class AgentsService {
     return row ? toAgentVersionDto(row) : undefined;
   }
 
-  /** Linked skills for an agent as AgentSkillLink[] (ordered). */
+  /** Linked skills for an agent as AgentSkillLink[] (ordered, with per-link enabled). */
   async skillLinks(agentId: string): Promise<AgentSkillLink[]> {
     const links = await this.repo.linkedSkills(agentId);
-    return links.map((l) => ({ agent_id: agentId, skill_id: l.skill.id, order: l.order }));
+    return links.map((l) => ({ agent_id: agentId, skill_id: l.skill.id, order: l.order, enabled: l.enabled }));
   }
 
   /**
@@ -162,12 +162,13 @@ export class AgentsService {
     agentId: string,
     skillId: string,
     order?: number,
+    enabled?: boolean,
   ): Promise<AgentSkillLink[] | undefined> {
     const agent = await this.repo.getById(workspaceId, agentId);
     if (!agent) return undefined;
     const existing = await this.repo.linkedSkills(agentId);
     const resolvedOrder = order ?? existing.length;
-    await this.repo.linkSkill(agentId, skillId, resolvedOrder);
+    await this.repo.linkSkill(agentId, skillId, resolvedOrder, enabled);
     return this.skillLinks(agentId);
   }
 
