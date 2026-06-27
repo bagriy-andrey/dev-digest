@@ -344,6 +344,95 @@ Do NOT flag:
       version: 1,
       agentName: 'Security Reviewer',
     },
+    // ---- API Contract Reviewer skills (L02) ----
+    {
+      workspaceId,
+      name: 'breaking-change',
+      description: 'Detects removal or incompatible change to any public API contract.',
+      type: 'rubric',
+      source: 'manual',
+      body: `## Breaking Change Detector
+Flag any deletion or incompatible change to a public API contract.
+
+**Catches:**
+- Removing or renaming a route, endpoint, or HTTP method
+- Removing a field from request/response body
+- Changing an existing field from optional → required
+- Narrowing accepted value sets (new enum restrictions)
+
+**Good:** Adding new optional response fields, new optional query params, new routes.
+**Bad:** Deleting \`GET /users/:id\`, removing \`email\` from response body — callers break silently.`,
+      enabled: true,
+      version: 1,
+      agentName: 'API Contract Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'response-schema',
+      description: 'Flags non-additive mutations to the shape of API responses.',
+      type: 'convention',
+      source: 'manual',
+      body: `## Response Schema Guard
+Flag non-additive mutations to the shape of API responses.
+
+**Catches:**
+- Field renamed (e.g. \`user.name\` → \`user.displayName\`) — consumers receive undefined
+- Type changed incompatibly (\`count: number\` → \`count: string\`)
+- Required field moved into a nested object
+- Previously-stable field made nullable without consumer null-checks
+
+**Good:** Adding a new \`meta\` object alongside existing fields.
+**Bad:** Renaming \`{ id, name }\` to \`{ id, display_name }\` — breaks consumers silently.`,
+      enabled: true,
+      version: 1,
+      agentName: 'API Contract Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'semver-discipline',
+      description: 'Flags breaking changes that lack a corresponding MAJOR version bump.',
+      type: 'rubric',
+      source: 'manual',
+      body: `## SemVer Discipline
+Flag breaking changes that lack a corresponding MAJOR version bump.
+
+**Rule:** Any removal or incompatible change to a public API requires a MAJOR semver increment.
+Minor/patch releases must be backward-compatible.
+
+**Catches:**
+- Breaking change without bumping MAJOR version
+- Commit/PR uses \`fix:\` or \`feat:\` label for a removal
+- \`package.json\` version bumped as patch/minor despite contract change
+
+**Good:** Breaking change + \`BREAKING CHANGE:\` commit footer + MAJOR bump.
+**Bad:** Removing a route in a \`1.2.3 → 1.2.4\` patch release.`,
+      enabled: true,
+      version: 1,
+      agentName: 'API Contract Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'deprecation-policy',
+      description: 'Flags silent removal of public endpoints or fields without prior deprecation notice.',
+      type: 'convention',
+      source: 'manual',
+      body: `## Deprecation Policy
+Flag silent removal of public endpoints or fields without a prior deprecation notice.
+
+**Rule:** A public API element must be deprecated before removal. Deprecation must be visible:
+\`@deprecated\` JSDoc, a \`Deprecation\` response header, or a logged warning.
+
+**Catches:**
+- Route or field deleted in the same PR it was first marked deprecated (no grace period)
+- Route deleted with no deprecation notice at all
+- Deprecated field removed without updating documentation or callers
+
+**Good:** PR 1 adds \`Deprecation: sunset="2025-12-01"\` header → PR 2 (next sprint) removes the route.
+**Bad:** Deleting \`POST /api/v1/tokens\` in a single commit with no prior warning.`,
+      enabled: true,
+      version: 1,
+      agentName: 'API Contract Reviewer',
+    },
   ];
 
   for (const { agentName, ...skill } of seedSkills) {
