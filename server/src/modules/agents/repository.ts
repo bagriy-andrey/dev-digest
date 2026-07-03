@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
@@ -52,8 +52,14 @@ export interface LinkedSkillRow {
 export class AgentsRepository {
   constructor(private db: Db) {}
 
-  async list(workspaceId: string): Promise<AgentRow[]> {
-    return this.db.select().from(t.agents).where(eq(t.agents.workspaceId, workspaceId));
+  async list(workspaceId: string): Promise<(AgentRow & { skill_count: number })[]> {
+    const rows = await this.db
+      .select({ agent: t.agents, skill_count: count(t.agentSkills.skillId) })
+      .from(t.agents)
+      .leftJoin(t.agentSkills, eq(t.agentSkills.agentId, t.agents.id))
+      .where(eq(t.agents.workspaceId, workspaceId))
+      .groupBy(t.agents.id);
+    return rows.map(({ agent, skill_count }) => ({ ...agent, skill_count }));
   }
 
   async listEnabled(workspaceId: string): Promise<AgentRow[]> {

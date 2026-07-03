@@ -63,7 +63,7 @@ export function AgentCard({
         <span className="mono" style={s.modelChip(color)}>
           {ag.model}
         </span>
-        {skillCount != null && (
+        {skillCount != null && skillCount > 0 && (
           <Badge color="var(--text-secondary)" icon="Sparkles">
             {t("card.skillCount", { count: skillCount })}
           </Badge>
