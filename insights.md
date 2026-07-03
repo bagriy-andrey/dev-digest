@@ -11,6 +11,17 @@
 
 ## Codebase Patterns
 
+- The **Planner/Implementer subagent pair** (`.claude/agents/planner.md`,
+  `.claude/agents/implementer.md`) relies on **disjoint file ownership per
+  plan step**, not `isolation: worktree` alone, to make parallel Implementer
+  runs safe. `isolation: worktree` only isolates each instance's *working
+  copy* — it does nothing to stop two steps from being planned to touch the
+  same file, which would just surface as a merge conflict later. The actual
+  safety guarantee has to come from the Planner declaring non-overlapping
+  file lists per step in the plan's Execution Order section. ⇒ Any future
+  parallel-subagent orchestration in this repo needs that same constraint
+  enforced at the planning stage, not assumed from git-worktree isolation.
+
 - Per-run **cost is already computed by `reviewer-core`** end-to-end: `ReviewOutcome.costUsd`
   (number | null) comes from OpenRouter's `usage.cost` extension, with an injected
   `estimateCost(model, in, out)` price-table fallback. It is then **silently dropped at the
