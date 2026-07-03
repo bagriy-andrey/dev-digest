@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useCallback } from "react";
-import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
+import { Icon, Badge, Button, SectionLabel, EmptyState, SeverityBadge, type Severity } from "@devdigest/ui";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";
 import { s } from "./styles";
 import type { FindingRecord, ReviewRecord, RunSummary, PrCommit } from "@devdigest/shared";
+import { SEVERITY_ORDER } from "../FindingsPanel/constants";
 import type { UseMutationResult } from "@tanstack/react-query";
 
 interface FindingsTabProps {
@@ -62,6 +63,18 @@ export function FindingsTab({
     },
     [onDelete],
   );
+
+  const [activeSeverity, setActiveSeverity] = React.useState<string | null>(null);
+
+  const sevCounts = React.useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of runs) {
+      for (const f of r.findings) m[f.severity] = (m[f.severity] ?? 0) + 1;
+    }
+    return m;
+  }, [runs]);
+
+  const sevKeys = Object.keys(SEVERITY_ORDER).filter((s) => (sevCounts[s] ?? 0) > 0);
 
   // Timeline → Review-runs navigation: clicking an agent name in the timeline
   // opens + scrolls to that run's accordion below. The nonce re-triggers the
@@ -138,6 +151,32 @@ export function FindingsTab({
         </div>
       )}
 
+      {sevKeys.length > 0 && (
+        <div style={s.severityBar}>
+          <button
+            style={{
+              ...s.severityChip,
+              opacity: activeSeverity === null ? 1 : 0.45,
+            }}
+            onClick={() => setActiveSeverity(null)}
+          >
+            <Badge bg={activeSeverity === null ? "var(--bg-hover)" : "transparent"}>All</Badge>
+          </button>
+          {sevKeys.map((sev) => (
+            <button
+              key={sev}
+              style={{
+                ...s.severityChip,
+                opacity: activeSeverity !== null && activeSeverity !== sev ? 0.45 : 1,
+              }}
+              onClick={() => setActiveSeverity((prev) => (prev === sev ? null : sev))}
+            >
+              <SeverityBadge severity={sev as Severity} count={sevCounts[sev]} />
+            </button>
+          ))}
+        </div>
+      )}
+
       <SectionLabel
         icon="AlertOctagon"
         right={<span style={{ fontSize: 12, color: "var(--text-muted)" }}>grouped by run · newest first</span>}
@@ -164,6 +203,7 @@ export function FindingsTab({
             headSha={headSha}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
+            severityFilter={activeSeverity}
           />
         ))
       )}

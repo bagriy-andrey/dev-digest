@@ -45,4 +45,18 @@ export const s = {
     display: "flex",
     gap: 8,
   } satisfies CSSProperties,
+  severityBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 14,
+    flexWrap: "wrap",
+  } satisfies CSSProperties,
+  severityChip: {
+    cursor: "pointer",
+    background: "none",
+    border: "none",
+    padding: 0,
+    borderRadius: 5,
+  } satisfies CSSProperties,
 } as const;
