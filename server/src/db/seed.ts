@@ -6,6 +6,8 @@ import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
+  TEST_QUALITY_REVIEWER_PROMPT,
+  API_CONTRACT_REVIEWER_PROMPT,
 } from './seed-prompts.js';
 
 /** Default provider/model for the built-in reviewer agents. */
@@ -212,12 +214,253 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       createdBy: userId,
     },
   ];
-  for (const a of seedAgents) {
+  const newAgents: Array<typeof t.agents.$inferInsert> = [
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description: 'Checks for uncovered branches, missing corner cases, over-mocking, and flakey patterns.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
+    {
+      workspaceId,
+      name: 'API Contract Reviewer',
+      description: 'Detects breaking changes to route signatures, response shapes, and status codes.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: API_CONTRACT_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
+  ];
+
+  for (const a of [...seedAgents, ...newAgents]) {
     const [existing] = await db
       .select()
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
+  }
+
+  // ---- starter skills ----
+  const seedSkills: Array<typeof t.skills.$inferInsert & { agentName?: string }> = [
+    {
+      workspaceId,
+      name: 'pr-quality-rubric',
+      description: 'Rubric for evaluating overall PR quality across correctness, tests, and clarity.',
+      type: 'rubric',
+      source: 'manual',
+      body: `# PR Quality Rubric
+
+Evaluate the pull request against the following dimensions. For each, return a
+finding only when the issue is **worth the author's time** — aim for 5 high-signal
+findings, not 50.
+
+## Correctness
+- Does the change do what the PR description claims?
+- Are edge cases (empty input, nulls, concurrency) handled?
+
+## Security
+- Any secrets, tokens, or credentials in the diff?
+- Untrusted input reaching a sink (SQL, shell, fetch)?
+
+## Tests
+- New branches covered by assertions?
+- Are tests meaningful (not just snapshot churn)?
+
+## Scope
+- Does the diff stay within the stated intent?
+- Flag out-of-scope changes separately rather than blocking.`,
+      enabled: true,
+      version: 1,
+      agentName: 'General Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'test-coverage-nudge',
+      description: 'Suggests covering new branches when tests are absent or superficial.',
+      type: 'custom',
+      source: 'manual',
+      body: `# Test Coverage Nudge
+
+When the diff introduces new branches (if/else, ternary, switch, early return, throw),
+check whether the test files in the same PR cover those branches.
+
+Flag (WARNING) when:
+- A new function has no test at all.
+- A branching statement has only the happy-path covered.
+- A thrown error is never asserted.
+
+Approve the test coverage dimension when every meaningful branch has at least one assertion.`,
+      enabled: true,
+      version: 1,
+      agentName: 'Test Quality Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'api-contract-gate',
+      description: 'Blocks PRs that silently break existing API callers.',
+      type: 'rubric',
+      source: 'manual',
+      body: `# API Contract Gate
+
+Before approving, verify that the diff does NOT:
+1. Remove or rename a field from an existing response body.
+2. Change an HTTP method or route path without a version bump.
+3. Change a success status code (e.g. 200 → 204) without documentation.
+4. Make a previously optional request field required.
+5. Widen nullability of a response field that callers treat as guaranteed.
+
+If any of the above is true, return a CRITICAL finding naming the route and the broken contract.
+Purely additive changes (new optional fields, new routes) do not need to be flagged.`,
+      enabled: true,
+      version: 1,
+      agentName: 'API Contract Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'secret-leakage-gate',
+      description: 'Detects sk_live, service_role, and NEXT_PUBLIC_ keys hardcoded in the diff.',
+      type: 'security',
+      source: 'community',
+      body: `# Secret Leakage Gate
+
+Flag any of the following patterns in the diff as CRITICAL:
+- Hardcoded API keys: sk_live, rk_live, service_role, NEXT_PUBLIC_ prefixed secrets
+- Bearer tokens or JWTs appearing in non-test source files
+- Passwords or connection strings with credentials embedded
+- Private keys (-----BEGIN * PRIVATE KEY-----)
+
+Do NOT flag:
+- Placeholder values like "your-key-here", "TODO", "REPLACE_ME"
+- Keys appearing only in .env.example or documentation comments
+- Test fixtures that are clearly fake (e.g. "test_sk_fake_key")`,
+      enabled: true,
+      version: 1,
+      agentName: 'Security Reviewer',
+    },
+    // ---- API Contract Reviewer skills (L02) ----
+    {
+      workspaceId,
+      name: 'breaking-change',
+      description: 'Detects removal or incompatible change to any public API contract.',
+      type: 'rubric',
+      source: 'manual',
+      body: `## Breaking Change Detector
+Flag any deletion or incompatible change to a public API contract.
+
+**Catches:**
+- Removing or renaming a route, endpoint, or HTTP method
+- Removing a field from request/response body
+- Changing an existing field from optional → required
+- Narrowing accepted value sets (new enum restrictions)
+
+**Good:** Adding new optional response fields, new optional query params, new routes.
+**Bad:** Deleting \`GET /users/:id\`, removing \`email\` from response body — callers break silently.`,
+      enabled: true,
+      version: 1,
+      agentName: 'API Contract Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'response-schema',
+      description: 'Flags non-additive mutations to the shape of API responses.',
+      type: 'convention',
+      source: 'manual',
+      body: `## Response Schema Guard
+Flag non-additive mutations to the shape of API responses.
+
+**Catches:**
+- Field renamed (e.g. \`user.name\` → \`user.displayName\`) — consumers receive undefined
+- Type changed incompatibly (\`count: number\` → \`count: string\`)
+- Required field moved into a nested object
+- Previously-stable field made nullable without consumer null-checks
+
+**Good:** Adding a new \`meta\` object alongside existing fields.
+**Bad:** Renaming \`{ id, name }\` to \`{ id, display_name }\` — breaks consumers silently.`,
+      enabled: true,
+      version: 1,
+      agentName: 'API Contract Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'semver-discipline',
+      description: 'Flags breaking changes that lack a corresponding MAJOR version bump.',
+      type: 'rubric',
+      source: 'manual',
+      body: `## SemVer Discipline
+Flag breaking changes that lack a corresponding MAJOR version bump.
+
+**Rule:** Any removal or incompatible change to a public API requires a MAJOR semver increment.
+Minor/patch releases must be backward-compatible.
+
+**Catches:**
+- Breaking change without bumping MAJOR version
+- Commit/PR uses \`fix:\` or \`feat:\` label for a removal
+- \`package.json\` version bumped as patch/minor despite contract change
+
+**Good:** Breaking change + \`BREAKING CHANGE:\` commit footer + MAJOR bump.
+**Bad:** Removing a route in a \`1.2.3 → 1.2.4\` patch release.`,
+      enabled: true,
+      version: 1,
+      agentName: 'API Contract Reviewer',
+    },
+    {
+      workspaceId,
+      name: 'deprecation-policy',
+      description: 'Flags silent removal of public endpoints or fields without prior deprecation notice.',
+      type: 'convention',
+      source: 'manual',
+      body: `## Deprecation Policy
+Flag silent removal of public endpoints or fields without a prior deprecation notice.
+
+**Rule:** A public API element must be deprecated before removal. Deprecation must be visible:
+\`@deprecated\` JSDoc, a \`Deprecation\` response header, or a logged warning.
+
+**Catches:**
+- Route or field deleted in the same PR it was first marked deprecated (no grace period)
+- Route deleted with no deprecation notice at all
+- Deprecated field removed without updating documentation or callers
+
+**Good:** PR 1 adds \`Deprecation: sunset="2025-12-01"\` header → PR 2 (next sprint) removes the route.
+**Bad:** Deleting \`POST /api/v1/tokens\` in a single commit with no prior warning.`,
+      enabled: true,
+      version: 1,
+      agentName: 'API Contract Reviewer',
+    },
+  ];
+
+  for (const { agentName, ...skill } of seedSkills) {
+    const [existingSkill] = await db
+      .select()
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, skill.name)));
+
+    let skillId: string;
+    if (existingSkill) {
+      skillId = existingSkill.id;
+    } else {
+      const [inserted] = await db.insert(t.skills).values(skill).returning({ id: t.skills.id });
+      skillId = inserted!.id;
+    }
+
+    if (agentName) {
+      const [agent] = await db
+        .select()
+        .from(t.agents)
+        .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, agentName)));
+      if (agent) {
+        await db
+          .insert(t.agentSkills)
+          .values({ agentId: agent.id, skillId, order: 0, enabled: true })
+          .onConflictDoNothing();
+      }
+    }
   }
 
   return { workspaceId, userId };

@@ -1,5 +1,17 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__github__create_pull_request",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Before creating this PR, you MUST invoke the pr-self-review skill and wait for its result. If the result is BLOCKED (any CRITICAL findings present), do NOT create the PR — show the findings to the user and stop. Only proceed with PR creation if the result is PASS or PASS with warnings.",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

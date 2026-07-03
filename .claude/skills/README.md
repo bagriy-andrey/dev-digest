@@ -17,6 +17,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 | [engineering-insights](engineering-insights/SKILL.md) | Meta | Capture-learnings loop — read/append per-module `insights.md` (append-only, deduped) |
+| [onion-architecture](onion-architecture/SKILL.md) | Backend | Enforces Onion Architecture for server/ modules: layers, dependency rule, ports, adapters, DI container, repository pattern, testing strategy |
 
 ## What Are Skills?
 

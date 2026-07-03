@@ -5,22 +5,40 @@
     "headingPrefix": "Conventions in ",
     "repoFallback": "repo",
     "subtitle": "Scan the cloned repo to surface house-rules — each backed by evidence you can turn into a Skill.",
-    "scanning": "Scanning…",
+    "scanning": "Analyzing…",
+    "runExtraction": "Analyze Repo",
     "rescan": "Re-scan",
-    "runExtraction": "Run extraction",
-    "extractionFailed": "Extraction failed",
+    "extractionFailed": "Extraction failed. Please try again.",
     "loadError": "Could not load conventions.",
+    "noRepo": "Select a repo first",
     "empty": {
-      "title": "No conventions extracted yet",
-      "body": "Scan the repo to surface house-rules — naming, error handling, structure — each backed by evidence you can turn into a Skill.",
-      "cta": "Run extraction"
+      "title": "No conventions found yet",
+      "body": "Run an analysis to surface naming rules, error-handling patterns, and structure conventions — each backed by evidence from the real code.",
+      "cta": "Analyze Repo"
     },
     "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files"
   },
   "card": {
     "confidence": "Confidence",
-    "accepted": "Accepted",
-    "accepting": "Accepting…",
-    "acceptAsSkill": "Accept as Skill"
+    "confidenceHigh": "High",
+    "confidenceMedium": "Medium",
+    "confidenceLow": "Low",
+    "evidenceLabel": "Evidence",
+    "viewOnGitHub": "View on GitHub"
+  },
+  "skill": {
+    "createButton": "Create Skill from selected",
+    "createButtonHint": "Select at least one convention to create a skill",
+    "creating": "Creating…",
+    "modalTitle": "Create Skill from Conventions",
+    "modalSubtitle": "The selected conventions will be combined into one skill body.",
+    "nameLabel": "Skill name",
+    "namePlaceholder": "e.g. Repo Conventions",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "What this skill checks for",
+    "previewLabel": "Skill body preview",
+    "confirmButton": "Create Skill",
+    "cancelButton": "Cancel",
+    "successToast": "Skill created successfully"
   }
 }

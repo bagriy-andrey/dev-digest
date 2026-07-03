@@ -183,6 +183,15 @@ export class ReviewRunExecutor {
 
       const task = taskLine(pull) + rankNote;
 
+      // Load enabled linked skills for this agent (both per-link AND global flag must be on).
+      const linkedSkills = await this.agents.linkedSkills(agent.id);
+      const enabledSkillBodies = linkedSkills
+        .filter((l) => l.enabled && l.skill.enabled)
+        .map((l) => l.skill.body);
+      runLog.info(
+        `Skills: ${enabledSkillBodies.length} of ${linkedSkills.length} linked skill(s) active`,
+      );
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -195,6 +204,8 @@ export class ReviewRunExecutor {
         // Per-agent review strategy (configured in the Agent editor); falls back
         // to the studio default. single-pass = whole diff in one call.
         strategy: agent.strategy ?? REVIEW_STRATEGY,
+        // Enabled linked skills → injected as "## Skills / rules" block.
+        ...(enabledSkillBodies.length > 0 ? { skills: enabledSkillBodies } : {}),
         // T1.3 — pass the callers digest only when we built one. assemblePrompt
         // omits the section when this is empty/undefined.
         ...(callersDigest ? { callers: callersDigest } : {}),
