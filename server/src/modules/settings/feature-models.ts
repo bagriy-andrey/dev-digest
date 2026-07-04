@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   FEATURE_MODELS,
   FeatureModelChoice,
@@ -54,4 +54,54 @@ export async function resolveFeatureModel(
   id: FeatureModelId,
 ): Promise<FeatureModelChoice> {
   return (await getFeatureModelOverride(container, workspaceId, id)) ?? DEFAULTS[id];
+}
+
+/**
+ * The repo's override for `id`, or `undefined` when unset/invalid. Reused by
+ * `resolveFeatureModelForRepo` and by the settings routes to check whether a
+ * repo-level override currently exists (without falling back to workspace/default).
+ */
+export async function getRepoFeatureModel(
+  container: Container,
+  repoId: string,
+  id: FeatureModelId,
+): Promise<FeatureModelChoice | undefined> {
+  const [row] = await container.db
+    .select({ provider: t.repoFeatureModels.provider, model: t.repoFeatureModels.model })
+    .from(t.repoFeatureModels)
+    .where(and(eq(t.repoFeatureModels.repoId, repoId), eq(t.repoFeatureModels.featureId, id)));
+  const parsed = FeatureModelChoice.safeParse(row);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** Upsert the repo's override for `id` to `choice`. */
+export async function setRepoFeatureModel(
+  container: Container,
+  repoId: string,
+  id: FeatureModelId,
+  choice: FeatureModelChoice,
+): Promise<void> {
+  await container.db
+    .insert(t.repoFeatureModels)
+    .values({ repoId, featureId: id, provider: choice.provider, model: choice.model })
+    .onConflictDoUpdate({
+      target: [t.repoFeatureModels.repoId, t.repoFeatureModels.featureId],
+      set: { provider: choice.provider, model: choice.model },
+    });
+}
+
+/**
+ * Resolve `id` to a concrete provider+model for a specific repo: repo override,
+ * else workspace override, else registry default. Workspace ownership of `repoId`
+ * is enforced by the caller (route/service), not here.
+ */
+export async function resolveFeatureModelForRepo(
+  container: Container,
+  workspaceId: string,
+  repoId: string,
+  id: FeatureModelId,
+): Promise<FeatureModelChoice> {
+  const repoChoice = await getRepoFeatureModel(container, repoId, id);
+  if (repoChoice) return repoChoice;
+  return resolveFeatureModel(container, workspaceId, id);
 }

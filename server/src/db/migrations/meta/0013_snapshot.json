@@ -1,6 +1,6 @@
 {
-  "id": "04d232d4-b887-4cad-a4d5-0b534323c33d",
-  "prevId": "dc8f28d9-9390-451d-b384-bb9e27c4fe98",
+  "id": "0feaf351-f872-4a61-bfcd-fb51cf40953c",
+  "prevId": "6cecd2f7-ae9f-40a0-9666-918a179cee33",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3433,6 +3433,65 @@
             "repo_id",
             "commit_sha",
             "token_budget"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.repo_feature_models": {
+      "name": "repo_feature_models",
+      "schema": "",
+      "columns": {
+        "repo_id": {
+          "name": "repo_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "feature_id": {
+          "name": "feature_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "repo_feature_models_repo_id_repos_id_fk": {
+          "name": "repo_feature_models_repo_id_repos_id_fk",
+          "tableFrom": "repo_feature_models",
+          "tableTo": "repos",
+          "columnsFrom": [
+            "repo_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "repo_feature_models_repo_id_feature_id_pk": {
+          "name": "repo_feature_models_repo_id_feature_id_pk",
+          "columns": [
+            "repo_id",
+            "feature_id"
           ]
         }
       },

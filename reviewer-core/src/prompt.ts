@@ -66,6 +66,13 @@ export interface PromptParts {
    * undefined → section omitted.
    */
   prDescription?: string;
+  /**
+   * Derived PR intent/scope (untrusted — classifier output over attacker-controlled
+   * PR text). Rendered as `## Intent`: a short TRUSTED scope-policy sentence OUTSIDE the
+   * wrapper, then the summary/in-scope/out-of-scope content INSIDE `wrapUntrusted`.
+   * Empty/undefined → section omitted (same contract as the other optional slots).
+   */
+  intent?: { summary: string; inScope: string[]; outOfScope: string[] };
   /** The unified diff / user task (untrusted content). */
   diff: string;
   /** Optional task framing line, e.g. "Review PR #482 '…'". */
@@ -101,10 +108,35 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
       ? parts.prDescription.slice(0, MAX_PR_DESCRIPTION_CHARS)
       : undefined;
 
+  const intentBlock =
+    parts.intent && parts.intent.summary.trim().length > 0
+      ? [
+          `Summary: ${parts.intent.summary}`,
+          parts.intent.inScope.length > 0
+            ? `In scope:\n${parts.intent.inScope.map((s) => `- ${s}`).join('\n')}`
+            : undefined,
+          parts.intent.outOfScope.length > 0
+            ? `Out of scope:\n${parts.intent.outOfScope.map((s) => `- ${s}`).join('\n')}`
+            : undefined,
+        ]
+          .filter((s): s is string => s !== undefined)
+          .join('\n')
+      : undefined;
+
   const userSections: string[] = [];
   if (parts.task) userSections.push(parts.task);
   if (prDescription) {
     userSections.push(`## PR description\n${wrapUntrusted('pr-description', prDescription)}`);
+  }
+  if (intentBlock) {
+    userSections.push(
+      `## Intent\n` +
+        `Scope policy: focus your review on changes that serve this PR's stated intent. ` +
+        `Do NOT raise findings about matters the author placed out of scope; if you spot a ` +
+        `SERIOUS defect that is out of scope, surface it as exactly ONE flagged signal, not ` +
+        `multiple findings.\n` +
+        wrapUntrusted('intent', intentBlock),
+    );
   }
   if (skillsBlock) userSections.push(`## Skills / rules\n${skillsBlock}`);
   if (memoryBlock) userSections.push(`## Relevant memory\n${memoryBlock}`);
@@ -134,6 +166,7 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
     callers: parts.callers ?? null,
     repo_map: parts.repoMap ?? null,
     pr_description: prDescription ?? null,
+    intent: intentBlock ?? null,
     user,
   };
 

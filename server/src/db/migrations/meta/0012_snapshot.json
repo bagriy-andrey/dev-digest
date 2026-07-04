@@ -1,6 +1,6 @@
 {
-  "id": "04d232d4-b887-4cad-a4d5-0b534323c33d",
-  "prevId": "77f7a0c6-ad06-468a-a7db-8d6c7cd6f9b1",
+  "id": "6cecd2f7-ae9f-40a0-9666-918a179cee33",
+  "prevId": "04d232d4-b887-4cad-a4d5-0b534323c33d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2610,6 +2610,12 @@
         "tokens_out": {
           "name": "tokens_out",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "double precision",
           "primaryKey": false,
           "notNull": false
         },

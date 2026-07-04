@@ -34,11 +34,46 @@
   (PR-list `cost` lives on `agent_runs`, NOT `reviews`, so it needs its own latest-run
   subquery — it can't piggyback the existing latest-`score`-from-reviews query.)
 
+  **2026-07-04 correction: this entire entry is STALE.** Commit `b058639` ("add costs to pr
+  review") already did exactly this plumbing: `agent_runs.cost_usd` was re-added by migration
+  `0010_cheerful_shard.sql`, `run-executor.ts` now destructures and persists `costUsd`, and it's
+  exposed in the vendored `PrMeta`/`RunSummary`/`RunStats` contracts. However, the merge in
+  commit `0148df2` (renumbering migrations onto `0011`/`0012`) silently dropped `cost_usd` from
+  those two snapshots' `agent_runs` column list (though the actual migration/DB/code all still
+  have it correctly) — this caused a separate, confusing `db:generate` bug fixed in this same
+  session; see `server/insights.md`'s "What Doesn't Work" entry on the `0011`/`0012` snapshot
+  corruption for the full story. Don't re-derive "cost surfacing is unbuilt" from this entry —
+  it's done; only the snapshot metadata briefly lied about one column's history.
+
 - `.claude/skills/README.md`'s skill catalog table is **stale**: at least
   `postgresql-table-design` and `pr-self-review` have real, populated skill directories under
   `.claude/skills/` but are not listed in that README's table. ⇒ Don't rely on the README
   table alone to enumerate available skills — glob `.claude/skills/*/SKILL.md` directly when
   it matters whether a skill exists.
+
+- The **"Intent Layer" feature already has partial scaffolding** before any dedicated
+  implementation work began: an `Intent` zod schema `{intent, in_scope, out_of_scope}` exists in
+  the vendored shared contracts (`.../vendor/shared/contracts/brief.ts`) as part of a composed
+  `PrBrief` (`intent`, `blast`, `risks`, `history`); `FEATURE_MODELS` in
+  `.../vendor/shared/contracts/platform.ts` already registers a selectable `'review_intent'`
+  feature (default `provider: 'openai'`, `model: 'gpt-4.1'` — NOT a flash/cheap model yet);
+  `Settings.feature_models` already supports a per-feature model override keyed by
+  `FeatureModelId`; `server/src/modules/reviews/repository/pull.repo.ts` already exports
+  `getIntent`/`upsertIntent`; `PrDetail` already carries a `linked_issue: IssueMeta` field. ⇒
+  Before building an Intent Layer, audit what of this existing scaffolding is wired up
+  end-to-end vs. dead/unused code — the "cheap flash-class model" requirement means the
+  `review_intent` default in `FEATURE_MODELS` needs to change, not just be read.
+
+- **Vendored `@devdigest/shared` has TWO physical copies, not three — and the client UI reads a
+  THIRD, non-vendored registry.** `reviewer-core/tsconfig.json` aliases `@devdigest/shared` to
+  **the server's** `server/src/vendor/shared` (not its own copy). So editing a contract under
+  `server/src/vendor/shared/**` (e.g. `contracts/platform.ts`, `contracts/trace.ts`) covers BOTH
+  server AND reviewer-core; only `client/src/vendor/shared/**` needs hand-mirroring. Separately,
+  the **client UI renders `FEATURE_MODELS` from `client/src/lib/feature-models.ts`**, NOT from the
+  vendored copy (importing a runtime VALUE from vendored shared breaks Next's webpack resolution —
+  see the comment in that file). ⇒ A user-visible feature-model default change must edit
+  `client/src/lib/feature-models.ts`; the vendored client copy is types-only for the UI. (These
+  two client files have already drifted for the `conventions` entry — don't assume they match.)
 
 ## Tool & Library Notes
 

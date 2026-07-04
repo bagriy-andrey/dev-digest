@@ -27,6 +27,14 @@ export const FeatureModelChoice = z.object({
 });
 export type FeatureModelChoice = z.infer<typeof FeatureModelChoice>;
 
+/** A repo-scoped feature-model override row (GET response / POST body). */
+export const RepoFeatureModel = z.object({
+  feature: FeatureModelId,
+  provider: Provider,
+  model: z.string().min(1),
+});
+export type RepoFeatureModel = z.infer<typeof RepoFeatureModel>;
+
 /**
  * Registry of the selectable features: stable id, display label, and the
  * built-in default used when the workspace hasn't overridden the choice. The
@@ -52,8 +60,8 @@ export const FEATURE_MODELS: FeatureModelDef[] = [
     id: 'review_intent',
     label: 'PR Review · Intent',
     description: 'Derives a PR’s intent and scope before review.',
-    defaultProvider: 'openai',
-    defaultModel: 'gpt-4.1',
+    defaultProvider: 'openrouter',
+    defaultModel: 'google/gemini-2.5-flash',
   },
   {
     id: 'risk_brief',

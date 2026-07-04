@@ -17,6 +17,7 @@
 
 - Deep relative imports (`../../../../../../../lib/hooks`) inside nested `_components` bypass the `@/` alias that is already configured. The alias works and is used in some files; the rest should be migrated. Seven-level paths are a DX hazard and break easily on file moves.
 - `window.confirm` with hardcoded English strings (found in `PRDetailPage`'s delete-run handler) bypasses the next-intl i18n system. Any user-facing string must go through `t("...")`.
+- `OverviewTab.tsx`'s existing `"Description"` section header (before the Intent Layer feature touched this file) is a hardcoded English literal passed as `<SectionLabel>` children — never `t("...")`. Pre-existing, not fixed when the Intent Card was added alongside it (out of scope for that change) — a third instance of the same i18n-bypass pattern already flagged above; don't assume a component is i18n-clean just because it uses `next-intl` elsewhere in the same tree.
 - `setTimeout` without `clearTimeout` cleanup (found in `RunTraceDrawer.copyRaw`) can trigger state updates on unmounted components. Always pair `setTimeout` with a `useRef` + cleanup.
 
 ## Codebase Patterns
@@ -31,6 +32,7 @@
 
 ## Tool & Library Notes
 
+- `SectionLabel` (`@devdigest/ui`) takes an optional `right?: React.ReactNode` slot (right-aligned via `marginLeft: "auto"`) for an inline header-level action — e.g. a "Recalculate" button next to a section title, no extra wrapper markup needed. Used by the Intent Card's `## Intent` header; check this prop before hand-rolling a flex row for "title + button" layouts.
 - `@monaco-editor/react` (v4.7.0) is now installed in client/. Use dynamic import with `next/dynamic` and `ssr: false` — Monaco does not run server-side. Wrap in a loading placeholder to avoid layout shift.
 - File upload to Fastify must use raw `fetch` + `FormData` (not `api.post`) because `api.post` sets `content-type: application/json`, which breaks multipart. The `useImportSkillFile` hook does this correctly; do not refactor it through `api`.
 - `@dnd-kit/core` + `@dnd-kit/sortable` (v6/v10) are installed. Cross-list DnD pattern used in `SkillsTab`: left panel items use `useSortable` inside `SortableContext`; right panel items use `useDraggable`; left container uses `useDroppable`. Distinguish source in `onDragEnd` via `active.data.current.type`. Use `arrayMove` from `@dnd-kit/sortable` for reorder. Apply optimistic local state (`pendingOrder`) to avoid list snap-back during in-flight mutations — clear it once the server-derived sort matches. A `Set` built from a `useMemo`-derived array must be rebuilt *inside* a child `useMemo` (not passed as a dep) — a `new Set(...)` reference always changes, causing the child memo to re-run every render. Tab bodies that need full-height two-column layout must opt out of the editor's default `padding: 28 / overflow: auto` by overriding `s.body` styles conditionally in `AgentEditor`.
