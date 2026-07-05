@@ -77,6 +77,18 @@
 
 ## Tool & Library Notes
 
+- **`agent-browser` (Vercel's CDP browser CLI) is usable for manual/one-off UI verification** even
+  though it isn't preinstalled: `npx -y agent-browser@latest install` downloads a headless Chrome
+  (~170MB, one-time), then `npx -y agent-browser@latest --session <name> <cmd>` drives it —
+  `open <url>`, `snapshot -i` (interactive-elements-only accessibility tree with `@eN` refs),
+  `click @eN`, `get url`, `tab list` (confirms no unexpected new tab opened), `screenshot --full`,
+  `close`. Note: its CLI shape is one-shot-command-per-invocation (`agent-browser <cmd>`), NOT the
+  stdin-piped multi-line REPL the `run` skill's `examples/playwright.md` shows for `chromium-cli` —
+  don't pipe a heredoc script to it, chain separate invocations against the same `--session` name
+  instead (the daemon keeps the page alive between calls). `e2e/` already has a real npm dependency
+  on this same tool (`@devdigest/e2e`'s `run.ts`) for its deterministic flow specs — this is the
+  same binary, just driven ad hoc instead of via `specs/*.flow.json`.
+
 - The `fastify-best-practices` skill's `rules/testing.md` examples use Node's built-in
   `node:test` + `app.inject()`, but this repo's actual server test runner is **vitest**
   (`server/package.json`: `"test": "vitest run"`, vitest `^2.1.8`). Don't copy that skill's

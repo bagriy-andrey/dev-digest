@@ -15,14 +15,12 @@ import { s } from "./styles";
 export function FindingsPanel({
   findings,
   prId,
-  repoFullName,
-  headSha,
+  onOpenInDiff,
   severityFilter,
 }: {
   findings: FindingRecord[];
   prId: string;
-  repoFullName?: string | null;
-  headSha?: string | null;
+  onOpenInDiff?: (file: string, line: number | null) => void;
   severityFilter?: string | null;
 }) {
   const t = useTranslations("prReview");
@@ -70,8 +68,7 @@ export function FindingsPanel({
               focused={i === focusIdx}
               defaultExpanded={i === 0}
               pending={action.isPending}
-              repoFullName={repoFullName}
-              headSha={headSha}
+              onOpenInDiff={onOpenInDiff}
               onAction={(act) => action.mutate({ findingId: f.id, action: act, prId })}
             />
           ))

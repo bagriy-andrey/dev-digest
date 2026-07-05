@@ -59,6 +59,12 @@ export default function PRDetailPage() {
 
   const tab = search.get("tab") ?? "overview";
   const traceRunId = search.get("trace");
+  // Findings → Files-changed navigation: clicking a finding's file:line opens
+  // the diff tab and scrolls to that file/line; the nonce re-triggers the
+  // scroll even when the same finding is clicked twice in a row.
+  const [diffTarget, setDiffTarget] = React.useState<{ file: string; line: number | null; n: number } | null>(
+    null,
+  );
   const setParam = (key: string, val: string | null) => {
     const sp = new URLSearchParams(search.toString());
     if (val == null) sp.delete(key);
@@ -66,6 +72,10 @@ export default function PRDetailPage() {
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
   const setTab = (t: string) => setParam("tab", t);
+  const openInDiff = (file: string, line: number | null) => {
+    setDiffTarget((p) => ({ file, line, n: (p?.n ?? 0) + 1 }));
+    setTab("diff");
+  };
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -145,8 +155,7 @@ export default function PRDetailPage() {
             runs={runs}
             prRuns={prRuns}
             prCommits={pr.commits}
-            repoFullName={repoFullName}
-            headSha={pr.head_sha}
+            onOpenInDiff={openInDiff}
             cancelMutation={cancel}
             onOpenTrace={(id) => setParam("trace", id)}
             onDelete={(id) => {
@@ -157,6 +166,9 @@ export default function PRDetailPage() {
               invalidateActiveRuns();
               invalidateRunHistory();
               refetchReviews();
+              // A completed review changes the Smart Diff findings overlay
+              // (classification/grouping itself is review-independent).
+              if (prId) qc.invalidateQueries({ queryKey: ["smart-diff", prId] });
             }}
           />
         )}
@@ -167,6 +179,9 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            targetFile={diffTarget?.file ?? null}
+            targetLine={diffTarget?.line ?? null}
+            targetNonce={diffTarget?.n ?? 0}
           />
         )}
       </div>

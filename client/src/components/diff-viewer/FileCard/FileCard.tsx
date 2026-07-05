@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 import { Icon } from "@devdigest/ui";
 import type { PrFile } from "@/lib/types";
 import { AUTO_EXPAND_MAX_LINES } from "../constants";
-import { parsePatch, type Line } from "../helpers";
+import { parsePatch, lineAnchorId, fileCardId, type Line } from "../helpers";
 import {
   buildThreads,
   keysForLine,
@@ -30,12 +30,48 @@ function threadsForLine(ln: Line, matched: Map<string, CommentThread[]>): Commen
   return out;
 }
 
-export function FileCard({ file, commenting }: { file: PrFile; commenting?: DiffCommentApi }) {
+export function FileCard({
+  file,
+  commenting,
+  findingLines,
+  scrollToLine,
+  openSignal,
+}: {
+  file: PrFile;
+  commenting?: DiffCommentApi;
+  /** Smart Diff findings overlay: new-side line numbers flagged by the most
+   *  recent review. Renders a clickable badge that expands the card and
+   *  scrolls to the first flagged line. */
+  findingLines?: number[];
+  /** External navigation target (e.g. clicking a finding in Agent runs):
+   *  new-side line to highlight + scroll to. Only meaningful when `openSignal`
+   *  is set for this file. */
+  scrollToLine?: number | null;
+  /** Nonce — when it changes, force the card open and scroll to `scrollToLine`
+   *  (or the card header if unset/not found). Undefined means "not the target". */
+  openSignal?: number;
+}) {
   const t = useTranslations("shell");
   const [open, setOpen] = React.useState(
     (file.additions ?? 0) + (file.deletions ?? 0) <= AUTO_EXPAND_MAX_LINES
   );
   const lines = React.useMemo(() => parsePatch(file.patch), [file.patch]);
+  const highlightLines = React.useMemo(() => {
+    const set = new Set<number>(findingLines ?? []);
+    if (scrollToLine != null) set.add(scrollToLine);
+    return set.size ? set : undefined;
+  }, [findingLines, scrollToLine]);
+
+  React.useEffect(() => {
+    if (openSignal == null) return;
+    setOpen(true);
+    requestAnimationFrame(() => {
+      const id = scrollToLine != null ? lineAnchorId(file.path, scrollToLine) : fileCardId(file.path);
+      const el = document.getElementById(id) ?? document.getElementById(fileCardId(file.path));
+      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal]);
 
   // Group this file's comments into threads, then split into ones we can anchor
   // to a rendered line vs. "outdated" (GitHub dropped the line / it's not here).
@@ -53,7 +89,7 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
     : 0;
 
   return (
-    <div style={s.fileCard}>
+    <div id={fileCardId(file.path)} style={{ ...s.fileCard, scrollMarginTop: 16 }}>
       <div onClick={() => setOpen((o) => !o)} style={s.fileHeader}>
         <Icon.ChevronRight size={13} style={chevronFor(open)} />
         <Icon.FileText size={14} style={s.fileIcon} />
@@ -72,6 +108,26 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
             {commentCount}
           </span>
         )}
+        {!!findingLines?.length && (
+          <button
+            type="button"
+            style={s.findingsBadge}
+            title={t("diffViewer.smart.findingsBadge", { count: findingLines.length })}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(true);
+              const firstLine = findingLines[0]!;
+              requestAnimationFrame(() => {
+                document
+                  .getElementById(lineAnchorId(file.path, firstLine))
+                  ?.scrollIntoView({ block: "center" });
+              });
+            }}
+          >
+            <Icon.AlertTriangle size={12} />
+            {t("diffViewer.smart.findingsBadge", { count: findingLines.length })}
+          </button>
+        )}
       </div>
       {open && (
         <div style={s.fileBody}>
@@ -85,6 +141,7 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
                 path={file.path}
                 threads={threadsForLine(ln, matched)}
                 commenting={commenting}
+                highlightLines={highlightLines}
               />
             ))
           )}

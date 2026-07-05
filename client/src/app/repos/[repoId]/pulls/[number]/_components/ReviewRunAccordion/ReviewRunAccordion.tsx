@@ -27,8 +27,7 @@ export function ReviewRunAccordion({
   review,
   prId,
   defaultOpen = false,
-  repoFullName,
-  headSha,
+  onOpenInDiff,
   targetRunId = null,
   targetNonce = 0,
   severityFilter,
@@ -36,8 +35,7 @@ export function ReviewRunAccordion({
   review: ReviewRecord;
   prId: string;
   defaultOpen?: boolean;
-  repoFullName?: string | null;
-  headSha?: string | null;
+  onOpenInDiff?: (file: string, line: number | null) => void;
   /** When this matches review.run_id, the accordion opens and scrolls into view
    *  (driven from the Timeline: clicking an agent name navigates here). */
   targetRunId?: string | null;
@@ -152,8 +150,7 @@ export function ReviewRunAccordion({
           <FindingsPanel
             findings={findings}
             prId={prId}
-            repoFullName={repoFullName}
-            headSha={headSha}
+            onOpenInDiff={onOpenInDiff}
             severityFilter={severityFilter}
           />
         </div>

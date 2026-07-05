@@ -57,4 +57,15 @@ describe("FindingCard (smoke, both themes)", () => {
     fireEvent.click(screen.getByText("Dismiss"));
     expect(onAction).toHaveBeenCalledWith("dismiss");
   });
+
+  it("clicking file:line opens it in the diff tab instead of linking to GitHub", () => {
+    const onOpenInDiff = vi.fn();
+    renderWithIntl(<FindingCard f={FINDING} defaultExpanded onOpenInDiff={onOpenInDiff} />);
+    const fileLink = screen.getByText("src/config.ts:11");
+    expect(fileLink.closest("a")).toBeNull();
+    fireEvent.click(fileLink);
+    expect(onOpenInDiff).toHaveBeenCalledWith("src/config.ts", 11);
+    // it shouldn't also bubble to the header and collapse the card
+    expect(screen.getByText("Move the key to an environment variable.")).toBeInTheDocument();
+  });
 });
