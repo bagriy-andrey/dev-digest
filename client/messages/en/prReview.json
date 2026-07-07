@@ -107,5 +107,19 @@
     "goToReview": "Jump to this run’s findings below",
     "openTrace": "Open run trace & logs",
     "deleteRun": "Delete run"
+  },
+  "intent": {
+    "label": "Intent",
+    "recalculate": "Recalculate",
+    "recalculating": "Recalculating…",
+    "recalculateError": "Couldn't recalculate intent — try again.",
+    "loading": "Loading intent…",
+    "empty": "No intent computed yet — Recalculate to classify this PR.",
+    "inScope": "In scope",
+    "outOfScope": "Out of scope",
+    "modelLabel": "Classifier model (this repo)",
+    "modelHint": "Overrides the global default in Settings → Models for this repository only.",
+    "modelSearch": "Search models…",
+    "usingDefault": "using workspace default"
   }
 }

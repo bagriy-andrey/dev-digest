@@ -19,9 +19,8 @@ interface FindingsTabProps {
   prRuns: RunSummary[] | undefined;
   prCommits: PrCommit[];
   cancelMutation: UseMutationResult<any, any, string, any>;
-  /** owner/repo + head sha — used to deep-link a finding's file:line to GitHub. */
-  repoFullName?: string | null;
-  headSha?: string | null;
+  /** Opens a finding's file:line in the Files changed tab instead of GitHub. */
+  onOpenInDiff?: (file: string, line: number | null) => void;
   onOpenTrace: (id: string) => void;
   onDelete: (id: string) => void;
   onRunDone: () => void;
@@ -36,8 +35,7 @@ export function FindingsTab({
   prRuns,
   prCommits,
   cancelMutation,
-  repoFullName,
-  headSha,
+  onOpenInDiff,
   onOpenTrace,
   onDelete,
   onRunDone,
@@ -199,8 +197,7 @@ export function FindingsTab({
             review={review}
             prId={prId}
             defaultOpen={i === 0}
-            repoFullName={repoFullName}
-            headSha={headSha}
+            onOpenInDiff={onOpenInDiff}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
             severityFilter={activeSeverity}

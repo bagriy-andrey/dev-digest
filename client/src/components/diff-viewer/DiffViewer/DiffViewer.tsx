@@ -14,9 +14,16 @@ import { FileCard } from "../FileCard";
 export function DiffViewer({
   files,
   commenting,
+  targetFile,
+  targetLine,
+  targetNonce,
 }: {
   files: PrFile[];
   commenting?: DiffCommentApi;
+  /** External navigation target (e.g. from a finding's file:line link). */
+  targetFile?: string | null;
+  targetLine?: number | null;
+  targetNonce?: number;
 }) {
   const t = useTranslations("shell");
   if (!files || files.length === 0) {
@@ -25,7 +32,13 @@ export function DiffViewer({
   return (
     <div style={s.list}>
       {files.map((f, i) => (
-        <FileCard key={i} file={f} commenting={commenting} />
+        <FileCard
+          key={i}
+          file={f}
+          commenting={commenting}
+          scrollToLine={f.path === targetFile ? targetLine : undefined}
+          openSignal={f.path === targetFile ? targetNonce : undefined}
+        />
       ))}
     </div>
   );

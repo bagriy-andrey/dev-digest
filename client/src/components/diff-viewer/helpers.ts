@@ -36,3 +36,15 @@ export function parsePatch(patch: string | null | undefined): Line[] {
   }
   return out;
 }
+
+/** Stable DOM id shared by `FileCard` (scroll target) and `CodeLine` (row id)
+ *  so a Smart Diff findings badge can scroll to the flagged line. */
+export function lineAnchorId(path: string, lineNo: number): string {
+  return `smartdiff-${path}:${lineNo}`;
+}
+
+/** Stable DOM id on a `FileCard`'s root — a scroll fallback for when a
+ *  requested line isn't in the rendered patch (e.g. outside any hunk). */
+export function fileCardId(path: string): string {
+  return `filecard-${path}`;
+}

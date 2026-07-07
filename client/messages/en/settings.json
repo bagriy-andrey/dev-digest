@@ -28,6 +28,16 @@
     "liveNote": "Prices are pulled live from OpenRouter — USD per 1M input/output tokens.",
     "noKeyNote": "Add an OpenRouter API key under API Keys to load the model list and prices."
   },
+  "repoModels": {
+    "title": "Intent Classifier — Per-Repository Override",
+    "body": "Pick a repository to override which model classifies PR intent for it, instead of the global default above.",
+    "noRepo": "Select a repository…",
+    "repoLabel": "Repository",
+    "modelLabel": "Classifier model",
+    "modelHint": "Overrides the global default for this repository only.",
+    "usingDefault": "using global default",
+    "search": "Search models…"
+  },
   "workspace": {
     "title": "Workspace",
     "body": "Appearance and sync preferences for this workspace.",

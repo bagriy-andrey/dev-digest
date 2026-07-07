@@ -64,6 +64,17 @@ export const s = {
     color: "var(--text-primary)",
     paddingRight: 12,
   } satisfies CSSProperties,
+  findingsBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    fontSize: 12,
+    color: "var(--warning-text, var(--accent-text))",
+    background: "transparent",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+  } satisfies CSSProperties,
 } as const;
 
 /** Chevron rotates 90deg when the file card is open. */
@@ -90,3 +101,10 @@ export function lineSignFor(kind: Line["kind"]): CSSProperties {
     flexShrink: 0,
   };
 }
+
+/** Subtle highlight for a line flagged by a Smart Diff finding, layered over
+ *  the base add/del/ctx background from `lineRowFor`. */
+export const highlightRowStyle: CSSProperties = {
+  boxShadow: "inset 3px 0 0 var(--warning-text, var(--accent-text))",
+  background: "var(--warning-bg, var(--accent-bg))",
+};

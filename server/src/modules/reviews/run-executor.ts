@@ -192,6 +192,12 @@ export class ReviewRunExecutor {
         `Skills: ${enabledSkillBodies.length} of ${linkedSkills.length} linked skill(s) active`,
       );
 
+      // Intent read-in: READ-ONLY — never computed/recalculated here. The
+      // classifier only ever runs via POST /pulls/:id/intent/recalculate.
+      const storedIntent = await this.repo.getIntent(pull.id); // undefined when never classified
+      if (storedIntent) runLog.info('Intent: injecting stored PR intent/scope into the review prompt');
+      else runLog.info('Intent: none stored for this PR — review runs without an intent section');
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -214,6 +220,17 @@ export class ReviewRunExecutor {
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        // Stored PR intent/scope (classifier output) — only when already
+        // computed via the manual Recalculate action; never auto-computed here.
+        ...(storedIntent
+          ? {
+              intent: {
+                summary: storedIntent.intent,
+                inScope: storedIntent.in_scope,
+                outOfScope: storedIntent.out_of_scope,
+              },
+            }
+          : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
