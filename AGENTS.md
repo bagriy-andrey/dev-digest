@@ -21,11 +21,12 @@ Fastify 5 · Drizzle ORM · Postgres + pgvector · Next.js 15 · React 19 · Zod
 - E2E: `./scripts/e2e.sh` — isolated stack on alt ports; never touches your dev DB.
 - Test/typecheck: per package `pnpm test` / `pnpm typecheck`.
 
-## Where things live (4 packages — NOT a workspace; each has its own lockfile)
+## Where things live (5 packages — NOT a workspace; each has its own lockfile)
 - `server/`        — `@devdigest/api`: Fastify + Drizzle. repo-intel indexer lives inside it.
 - `client/`        — `@devdigest/web`: Next.js studio UI.
 - `reviewer-core/` — `@devdigest/reviewer-core`: pure engine diff→prompt→LLM→grounded findings (no I/O).
 - `e2e/`           — `@devdigest/e2e`: agent-browser flows (deterministic, no LLM).
+- `mcp-server/`    — `@devdigest/mcp-server`: local stdio MCP server, 5 tools, pure HTTP client of the API.
 
 ## Cross-cutting gotchas (the agent can't guess these from code)
 - `@devdigest/shared` (Zod contracts) is VENDORED into each package via tsconfig

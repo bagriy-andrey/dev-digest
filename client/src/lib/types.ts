@@ -8,6 +8,8 @@
  * not yet exported, add a placeholder below marked
  * `// TODO: reconcile with @devdigest/shared`.
  */
+import type { BlastRadius } from "@devdigest/shared";
+
 export type {
   Settings,
   SettingsUpdate,
@@ -33,8 +35,20 @@ export type {
 } from "@devdigest/shared";
 
 export type { Review, Finding, Severity, Verdict } from "@devdigest/shared";
-export type { PrBrief, SmartDiff, Intent } from "@devdigest/shared";
+export type { PrBrief, SmartDiff, Intent, BlastRadius } from "@devdigest/shared";
 export type { Skill, SkillType, SkillSource, AgentSkillLink } from "@devdigest/shared";
+
+/**
+ * `GET /pulls/:id/blast`'s actual response shape: the `BlastRadius` contract
+ * plus transport-only degraded fields the route adds locally (server never
+ * edits the vendored contract for this — see `server/specs/blast-radius.md`).
+ * Client doesn't runtime-validate responses (`lib/api.ts` uses plain TS
+ * generics, no zod parse), so this is a type-only addition.
+ */
+export type BlastRadiusResult = BlastRadius & {
+  degraded?: boolean;
+  degraded_reason?: string | null;
+};
 
 /** UI-only view model for a PR list row (derives display fields from PrMeta). */
 export interface PrRowView {

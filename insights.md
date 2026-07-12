@@ -64,6 +64,22 @@
   end-to-end vs. dead/unused code — the "cheap flash-class model" requirement means the
   `review_intent` default in `FEATURE_MODELS` needs to change, not just be read.
 
+- **The "scaffolding exists, nothing wired" pattern (first seen on Intent Layer, above) is now
+  confirmed a THIRD time, on Blast Radius** — `contracts/brief.ts` defines `PrBrief` as four
+  composed sections (`intent`, `blast`, `risks`, `history`), and at least two of the four
+  (`intent`, `blast`) had their full Zod shape pre-built with zero producers/consumers before any
+  dedicated implementation work began (Smart Diff is a sibling case, though its contract lives
+  outside `PrBrief` proper). For `blast` specifically: `BlastRadius`/`DownstreamImpact`/
+  `BlastCaller`/`ChangedSymbol` (`contracts/brief.ts:16-44`, both vendored copies) sat unused
+  while the underlying DATA layer (`RepoIntelService.getBlastRadius`,
+  `modules/repo-intel/service.ts:220-391`) was already fully implemented and working — the gap
+  was purely the HTTP route + response-shape mapper + UI, not analysis logic. ⇒ Before scoping
+  ANY future `PrBrief` section (`risks`/`history` are the two not yet built), grep
+  `contracts/brief.ts` for the section's contract AND grep the whole repo for producers/consumers
+  of it — assume scaffolding-but-unwired is the default state here, not "nothing exists yet."
+  Also check whether the section's underlying facade/data layer (repo-intel, github adapter, etc.)
+  is ALSO already built for the same reason — it was, both times.
+
 - **Vendored `@devdigest/shared` has TWO physical copies, not three — and the client UI reads a
   THIRD, non-vendored registry.** `reviewer-core/tsconfig.json` aliases `@devdigest/shared` to
   **the server's** `server/src/vendor/shared` (not its own copy). So editing a contract under
@@ -97,6 +113,15 @@
   (`server/test/adapters.test.ts` for unit, `server/test/integration.it.test.ts` for the
   `*.it.test.ts`-suffixed real-Postgres pattern) instead of that skill's code blocks.
 
+- **Claude Code's `.claude/settings.json` `permissions.allow` command allowlist is global, not
+  scoped per subagent type.** There is no mechanism to grant e.g. only the `implementer` agent
+  the ability to run `Bash(npm *)` while withholding it from other agents in the same
+  session — an allow rule (`"Bash(npm *)"`, `"Bash(node *)"`, etc.) applies across every
+  subagent launched in that session. ⇒ When a request is phrased as "give agent X permission to
+  do Y," first surface that the real primitive is a global command-pattern rule (not
+  per-agent), and confirm the intended scope (narrow pattern vs. broad) before editing
+  `settings.json` — don't silently approximate a per-agent restriction that doesn't exist.
+
 ## Recurring Errors & Fixes
 
 - An `isolation: worktree` subagent's branch is forked from whatever commit was HEAD at
@@ -109,6 +134,62 @@
   path even though the step's own deliverable must still be written inside the worktree. Also:
   `implementer`-style agents cannot merge/push their own worktree branch back — the caller must
   manually copy the new file(s) out and integrate them into the main checkout.
+
+  **Corollary when the step's own file list is `(modify)`, not `(new)`, and the whole *package* is
+  itself still untracked** (e.g. a brand-new leaf package like `mcp-server/` that another session
+  scaffolded directly in the main checkout and never committed): the worktree has NONE of it — not
+  even the baseline files the step is supposed to modify — because worktrees only carry committed
+  content. `Edit` then refuses ("edit the worktree copy instead of the shared-checkout path") since
+  it requires a prior in-worktree `Read`. Fix used successfully by two independent steps in the same
+  session: `rsync -a --exclude node_modules --exclude dist <main-checkout>/<package>/
+  <worktree>/<package>/` to seed the baseline package, then `npm install`/`pnpm install` inside the
+  worktree copy so typecheck/test can run, THEN `Edit` normally. This is legitimate step-scope work
+  (materializing pre-existing baseline infra the step depends on), not scope creep — but clean the
+  seeded baseline back out of the worktree before finishing, leaving only the step's own declared
+  files, so the caller's integration step doesn't mistake sibling-step files (or the whole rsync'd
+  package) for this step's output.
+
+  **Subtler variant: a single missing re-export line, not a whole untracked package.** An entire
+  "already shipped" feature's source code can be uncommitted-only in the main checkout and thus
+  absent from every fresh worktree, including worktrees created for a *follow-up* spec that assumes
+  it as baseline (e.g. a `blast-radius-gaps.md` spec whose §0 says `client/src/lib/types.ts` already
+  re-exports `BlastRadius` because the parent `blast-radius.md` feature is "implemented" — true in
+  the main checkout, false in a worktree forked before that work was committed). Symptom: a step's
+  own new files are logically correct and `vitest run` even passes (type-only imports get erased by
+  esbuild at runtime, so a missing re-export doesn't fail tests), but `pnpm typecheck` fails on an
+  import the step never touches. ⇒ When typecheck fails on a symbol the plan says "already exists,"
+  check `git log --oneline -- <file>` / `git diff` in the worktree before assuming your own code is
+  wrong — if the symbol is genuinely absent from git history (not just this branch), the worktree is
+  missing baseline work that was never committed anywhere; this is a blocker for the caller to fix
+  (sync/commit the baseline into the worktree, or verify against the main checkout post-hoc as was
+  done here), not something the step's agent should silently patch by editing a file outside its
+  declared list.
+
+- The **`github@claude-plugins-official` MCP plugin ignores this project's `GITHUB_TOKEN`/
+  `GITHUB_PAT` convention entirely.** Its bundled `.mcp.json` builds the auth header from
+  `${GITHUB_PERSONAL_ACCESS_TOKEN}` — a different env var name — and that var must be visible to
+  the Claude Code CLI process itself, not just to the app. `server/.env` (where this repo's
+  `GITHUB_TOKEN` normally lives) is a Node-only dotenv file the Fastify server reads; the CLI
+  process never sources it, so the MCP connection failed with HTTP 400 until
+  `GITHUB_PERSONAL_ACCESS_TOKEN` was added explicitly to the harness's own `env` block in
+  `~/.claude/settings.json` (global, since it's a personal PAT). ⇒ Don't assume any
+  GitHub-auth-flavored Claude Code plugin/MCP server will pick up this project's `GITHUB_TOKEN`
+  convention automatically — check the plugin's own `.mcp.json` for the exact env var name it
+  expects and set that name separately.
+
+- A background `Agent`-tool subagent (any `subagent_type`, not just `implementer`) can fail
+  mid-task with `"You've hit your session limit"` — an account-wide usage cap, not a per-agent
+  one — and this can happen after the agent has already made SOME `Edit`/`Write` calls, leaving a
+  shared file (e.g. a `specs/*.md` plan another agent or the user is also relying on) partially
+  modified: some sections rewritten to a new design, others still describing the old one,
+  self-contradictory. The task-notification's `status: "failed"` fires the same as a clean
+  failure — there's no signal distinguishing "died before writing anything" from "died mid-edit."
+  ⇒ After ANY background-agent failure notification that mentions a session/rate limit, re-read
+  the full file(s) it was told to touch before trusting or continuing from them — don't assume a
+  failed agent left zero footprint. (Also: don't poll a stalled/still-running background agent by
+  repeatedly re-reading its target files or output — that's noisy and rarely tells you more than
+  waiting for the actual completion notification; only re-read after a `failed`/`completed`
+  notification actually arrives.)
 
 ## Session Notes
 

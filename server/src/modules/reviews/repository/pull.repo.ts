@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
 import type { Intent } from '@devdigest/shared';
@@ -31,6 +31,36 @@ export async function getPrFiles(
   prId: string,
 ): Promise<(typeof t.prFiles.$inferSelect)[]> {
   return db.select().from(t.prFiles).where(eq(t.prFiles.prId, prId));
+}
+
+/**
+ * Other PRs in the same repo whose changed files overlap `paths`, excluding
+ * `excludePrId` (the current PR), newest-first. Exact-path overlap only (no
+ * rename-awareness — see `server/specs/blast-radius-gaps.md` §5).
+ */
+export async function getPrsTouchingFiles(
+  db: Db,
+  repoId: string,
+  excludePrId: string,
+  paths: string[],
+): Promise<{ id: string; number: number; title: string }[]> {
+  if (paths.length === 0) return [];
+  return db
+    .selectDistinct({
+      id: t.pullRequests.id,
+      number: t.pullRequests.number,
+      title: t.pullRequests.title,
+    })
+    .from(t.pullRequests)
+    .innerJoin(t.prFiles, eq(t.prFiles.prId, t.pullRequests.id))
+    .where(
+      and(
+        eq(t.pullRequests.repoId, repoId),
+        ne(t.pullRequests.id, excludePrId),
+        inArray(t.prFiles.path, paths),
+      ),
+    )
+    .orderBy(desc(t.pullRequests.number));
 }
 
 /**

@@ -82,6 +82,16 @@ export interface BlastResult {
    * Present on the persistent (non-degraded) path; absent otherwise.
    */
   factsByFile?: Record<string, { endpoints: string[]; crons: string[] }>;
+  /**
+   * Per-changed-symbol endpoints/crons: union of (a) the symbol's direct
+   * hop-1 caller files' own facts and (b) every file that transitively
+   * imports the symbol's declaring file within `BFS_DEPTH` hops (the
+   * `file_edges` reverse-import walk — see `blast-reachability.ts`). Present
+   * on the persistent (non-degraded) path; absent on the ripgrep/degraded
+   * fallback, which stays 1-hop.
+   */
+  endpointsBySymbol?: Record<string, string[]>;
+  cronsBySymbol?: Record<string, string[]>;
   degraded?: boolean;
   reason?: DegradedReason;
 }

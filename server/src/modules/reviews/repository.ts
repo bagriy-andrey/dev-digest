@@ -39,6 +39,15 @@ export class ReviewRepository {
     return pullRepo.getPrFiles(this.db, prId);
   }
 
+  /** Other PRs in the same repo sharing ≥1 changed file path, newest-first. */
+  getPrsTouchingFiles(
+    repoId: string,
+    excludePrId: string,
+    paths: string[],
+  ): Promise<{ id: string; number: number; title: string }[]> {
+    return pullRepo.getPrsTouchingFiles(this.db, repoId, excludePrId, paths);
+  }
+
   // ---- reviews + findings -------------------------------------------------
 
   insertReview(values: {

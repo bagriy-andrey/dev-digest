@@ -80,6 +80,7 @@ describe('AI contracts parse fixtures', () => {
             crons_affected: ['c'],
           },
         ],
+        prior_prs: [{ id: 'pr1', number: 401, title: 't' }],
         summary: 's',
       }),
     ).not.toThrow();

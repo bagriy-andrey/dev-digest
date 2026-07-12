@@ -29,6 +29,7 @@ import {
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { RepoIntelRepository, type FullSymbolRow } from './repository.js';
+import { reverseReachableFiles } from './blast-reachability.js';
 import type {
   BlastCallerRow,
   BlastChangedSymbol,
@@ -48,6 +49,7 @@ import {
   INDEX_JOB_KIND,
   INDEXER_VERSION,
   MAX_CALLERS_PER_SYMBOL,
+  MAX_REACHABLE_FILES,
   REFRESH_JOB_KIND,
   RESYNC_JOB_KIND,
   SUPPORTED_EXT,
@@ -338,7 +340,7 @@ export class RepoIntelService implements RepoIntel {
       return { changedSymbols, callers: [], impactedEndpoints: [], degraded: false };
     }
 
-    // Resolved cross-file callers.
+    // Resolved cross-file callers (hop 1, direct — unchanged).
     const callerRows = await this.repo.getResolvedCallers(repoId, changedFiles, [...nameSet]);
     const callerFiles = [...new Set(callerRows.map((c) => c.fromPath))];
 
@@ -371,21 +373,81 @@ export class RepoIntelService implements RepoIntel {
     }
     callers.sort((a, b) => b.rank - a.rank);
 
-    // Precomputed facts per caller file (endpoints + crons), so consumers can
-    // attribute them to the changed symbol whose callers live in that file.
-    const facts = await this.repo.getFileFacts(repoId, callerFiles);
-    const endpoints = new Set<string>();
+    // Cap fan-out PER changed symbol — `MAX_CALLERS_PER_SYMBOL` is documented
+    // (constants.ts) as "caller fan-out cap per changed symbol", not a global
+    // cap. Group by `viaSymbol`, keep the top-ranked N per group (the list is
+    // already rank-sorted above), flatten back in rank order.
+    const cappedCallers: BlastCallerRow[] = [];
+    const countBySymbol = new Map<string, number>();
+    for (const c of callers) {
+      const n = countBySymbol.get(c.viaSymbol) ?? 0;
+      if (n >= MAX_CALLERS_PER_SYMBOL) continue;
+      countBySymbol.set(c.viaSymbol, n + 1);
+      cappedCallers.push(c);
+    }
+
+    // Hop 2 — reverse-import reachability seeded at the changed files (the
+    // `fileEdges` schema comment: "the reverse-lookup index is what blast
+    // uses to walk 'who depends on this file?'"). File-scoped: every symbol
+    // declared in the same changed file shares that file's reachable set.
+    const edges = await this.repo.getEdges(repoId);
+    const reachableByChangedFile = reverseReachableFiles(
+      edges,
+      changedFiles,
+      BFS_DEPTH,
+      MAX_REACHABLE_FILES,
+    );
+    const allReachableFiles = new Set<string>();
+    for (const set of reachableByChangedFile.values()) {
+      for (const f of set) allReachableFiles.add(f);
+    }
+
+    // Precomputed facts (endpoints + crons) for every file either hop needs:
+    // direct callers (hop 1) UNION reverse-import reachable files (hop 2) —
+    // one round-trip, not N.
+    const factFiles = new Set<string>([...callerFiles, ...allReachableFiles]);
+    const facts = await this.repo.getFileFacts(repoId, [...factFiles]);
     const factsByFile: Record<string, { endpoints: string[]; crons: string[] }> = {};
     for (const f of facts) {
       factsByFile[f.filePath] = { endpoints: f.endpoints, crons: f.crons };
-      for (const e of f.endpoints) endpoints.add(e);
+    }
+
+    // Attribute endpoints/crons per changed symbol: union of (a) its own
+    // direct hop-1 caller files' facts, and (b) every file that transitively
+    // imports the symbol's declaring file within BFS_DEPTH hops (hop 2). The
+    // visible `callers[]` array stays hop-1-only — hop 2 only extends this
+    // attribution, it never becomes a "caller" in the UI sense.
+    const endpointsBySymbol: Record<string, string[]> = {};
+    const cronsBySymbol: Record<string, string[]> = {};
+    const endpoints = new Set<string>();
+    for (const sym of changedSymbols) {
+      const eps = new Set<string>();
+      const crons = new Set<string>();
+      for (const c of cappedCallers) {
+        if (c.viaSymbol !== sym.name) continue;
+        const f = factsByFile[c.file];
+        if (!f) continue;
+        for (const e of f.endpoints) eps.add(e);
+        for (const cr of f.crons) crons.add(cr);
+      }
+      for (const reachableFile of reachableByChangedFile.get(sym.file) ?? []) {
+        const f = factsByFile[reachableFile];
+        if (!f) continue;
+        for (const e of f.endpoints) eps.add(e);
+        for (const cr of f.crons) crons.add(cr);
+      }
+      endpointsBySymbol[sym.name] = [...eps].sort();
+      cronsBySymbol[sym.name] = [...crons].sort();
+      for (const e of eps) endpoints.add(e);
     }
 
     return {
       changedSymbols,
-      callers: callers.slice(0, MAX_CALLERS_PER_SYMBOL),
-      impactedEndpoints: [...endpoints],
+      callers: cappedCallers,
+      impactedEndpoints: [...endpoints].sort(),
       factsByFile,
+      endpointsBySymbol,
+      cronsBySymbol,
       degraded: false,
     };
   }

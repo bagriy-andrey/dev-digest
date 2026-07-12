@@ -31,6 +31,93 @@
 - The `'review_intent'` `FeatureModelId` is registered in `FEATURE_MODELS` (`vendor/shared/contracts/platform.ts`, default `openai/gpt-4.1`) and `pr_intent`/`pr_brief` DB tables + `Intent` zod contract + `ReviewRepository.getIntent`/`upsertIntent` all exist, but **nothing in `server/src` actually calls `resolveFeatureModel(..., 'review_intent')` or `getIntent`/`upsertIntent`** — grep confirms zero call sites outside the repository/contract layer itself. This is pure unbuilt scaffolding (see root `insights.md` for the full cross-cutting picture), not a working feature to build on top of.
 - The `SmartDiff`/`SmartDiffGroup`/`SmartDiffFile`/`SmartDiffRole`/`ProposedSplit` zod contracts already exist, fully defined and byte-identical, in both vendored copies (`server/src/vendor/shared/contracts/brief.ts:80-113` and `client/src/vendor/shared/contracts/brief.ts:80-113`) as part of the composed `PrBrief` doc — but grep confirms zero producers/consumers anywhere in `server/src` or `client/src` outside the contract file itself. Same "scaffolding exists, nothing wired" shape as `review_intent` above. A Smart-Diff feature building on this must NOT redefine the contract, only compose it.
 - "Latest review per PR" has an existing, reusable precedent: `server/src/modules/pulls/routes.ts:114-127` derives it by iterating `reviewsForPull`'s newest-first (`desc(createdAt)`) list and taking the first row per `prId` (filtered to `kind === 'review'`) into a `Map`. There is no `is_latest` flag anywhere in the schema — any new feature needing "the latest completed review" should reuse this same reduction over `ReviewRepository.reviewsForPull`, not invent new query logic.
+- **`RepoIntelService.getBlastRadius`'s persistent path (`tryPersistentBlast`,
+  `modules/repo-intel/service.ts:315-391`) only finds DIRECT (1-hop) callers of a changed
+  symbol, despite `BFS_DEPTH = 2` existing as a constant** (`repo-intel/constants.ts`).
+  `getResolvedCallers` filters `references.declFile IN changedFiles AND toSymbol IN names` — a
+  single hop. `BFS_DEPTH` is only ever consumed by the unrelated `getCriticalPaths` (onboarding,
+  walks `file_edges`). So a route handler that calls a wrapper that calls the changed helper (2
+  hops away) is invisible to `getBlastRadius` today — endpoints/crons are only attributed from
+  the direct callers' own `file_facts`. ⇒ Any feature needing deeper reachability (e.g. Blast
+  Radius L04) must extend `tryPersistentBlast` itself, not assume `BFS_DEPTH` already covers it.
+  The cheapest extension is calling `getResolvedCallers` a SECOND time with hop-1's caller files/
+  enclosing-symbol names as hop-2's input (same method, no new query/repository code) — not
+  pulling in `file_edges`/`getEdges` (that's file-level import edges, coarser than the
+  symbol-level call graph this actually needs). See `server/specs/blast-radius.md` §1.A for the
+  worked-out provenance-tracking design (attributing hop-2 endpoints back to the originating
+  changed symbol via a `Map<enclosingName, Set<originalSymbolName>>`).
+
+  **2026-07-09 correction: the "call `getResolvedCallers` a second time" design above was
+  SUPERSEDED before implementation and is NOT what shipped.** The `fileEdges` schema comment
+  (`server/src/db/schema/repo-intel.ts:51-53`: "the reverse-lookup index `(repoId, toFile)` is
+  what blast uses to walk 'who depends on this file?'") is authoritative original-author intent
+  that a symbol-level call-graph re-query approach misses entirely — it explicitly names "blast"
+  and describes a **file-level reverse-import walk**, not a second `references` query. What
+  actually shipped: a new pure `repo-intel/blast-reachability.ts::reverseReachableFiles(edges,
+  seeds, depth, cap)` (hermetically unit-tested, no DB) doing a reverse BFS over `file_edges`
+  (`toFile → fromFile`) seeded at the changed files, capped per-seed by a new
+  `MAX_REACHABLE_FILES` constant, reusing `BFS_DEPTH` (finally consumed on the blast path it was
+  named for). Endpoint/cron attribution is **file-scoped**: every changed symbol inherits the
+  endpoints/crons reachable from its *declaring file*, not computed per-symbol via the call
+  graph. ⇒ **Always check a table's schema-file doc comment before designing a read pattern
+  against it** — it can encode the original author's intended access pattern in a way that's
+  easy to miss from grepping call sites alone (the comment predated any of this feature's
+  analysis and was more reliable than independently re-deriving the mechanism).
+
+- **`RepoIntelService.getBlastRadius`'s `callers[]` cap (`MAX_CALLERS_PER_SYMBOL = 20`) was
+  applied GLOBALLY across the whole response, not per changed symbol, despite the constant's own
+  doc comment** (`repo-intel/constants.ts:29`: "caller fan-out cap per changed symbol"). The old
+  code did `callers.sort(...).slice(0, MAX_CALLERS_PER_SYMBOL)` on the flat merged array — a PR
+  changing 2 symbols with 15 callers each would silently lose 10 callers of whichever symbol
+  sorted second, not cap each at 20. Fixed (2026-07-09, part of the Blast Radius feature) by
+  grouping by `viaSymbol` and capping each group independently before flattening. ⇒ When a
+  "cap N per X" constant is consumed via a single `.slice()` on an already-flattened array across
+  multiple X's, check whether the cap is actually being applied per-group or just once globally —
+  the doc comment and the code silently disagreed here for the whole T3 lifetime of this path.
+
+- `POST /pulls/:id/review` is fire-and-forget: `ReviewService.runReview` (`reviews/service.ts`) returns `{pr_id, runs, reviews: []}` IMMEDIATELY — `reviews` is always empty in that response — while the actual LLM run continues in the background. Any external client (CLI, MCP server, script) that expects the verdict/findings back from this POST will get nothing useful; it must poll `GET /pulls/:id/runs` until a run's `status` is `done`/`failed`/`cancelled`, then read `GET /pulls/:id/reviews` for the persisted result. Found while planning a new MCP-server client against this API (`specs/mcp-server.md`) — the naive assumption (POST returns the review) is wrong and would have shipped a broken single-call integration.
+
+- **Ad-hoc (non-PR) review reuse points**, found while planning the Pre-push CLI
+  (`specs/mcp-server.md` follow-up, no code written yet): `parseUnifiedDiff()`
+  (`adapters/git/diff-parser.ts`) has no PR-specific assumptions — it parses ANY standard
+  `git diff` text into `UnifiedDiff`, so a raw local working-tree diff (no PR behind it) needs
+  zero new parsing code. `ReviewRunExecutor.runOneAgent`'s three enrichment helpers
+  (`buildCallersDigest`/`buildRepoMapDigest`/`buildRankNote`, `reviews/run-executor.ts`) take only
+  `repoId` (+ `diff` for two of them) — they never touch `pull`/`PullRow` — so they, and the
+  `reviewPullRequest(...)` call itself, can be extracted into a shared helper reusable by a future
+  non-PR review endpoint without duplicating the enrichment logic. Only `taskLine(pull)` is
+  genuinely PR-shaped and needs a substitute string when there's no PR. Separately: agents have no
+  "default" concept — the `agents` table has only `enabled`, no `isDefault`/`isPrimary` column
+  (confirmed by grep) — so any caller needing "the agent" without an explicit id must either
+  require one or run all of `listEnabled(workspaceId)`. And `RepoRepository.findByFullName`
+  (`modules/repos/repository.ts:23`) already does owner/name → repo resolution, but only
+  `RepoService.add`'s dedupe check calls it — no route exposes it, and an external caller can get
+  the same result by filtering the existing `GET /repos` list client-side (it already returns
+  `full_name`), so this doesn't need a new endpoint either.
+
+- **Importing a repo (`POST /repos`) does NOT import its pull requests — PR sync happens lazily on the first `GET`.** The body is only `{ url }` (`RepoInput`, `vendor/shared/contracts/platform.ts`); `RepoService.add` (`modules/repos/service.ts:86-106`) derives owner/name from the URL, persists the row, and enqueues an async clone+index job — no PR data is touched. Pull requests only get fetched/upserted (`onConflictDoUpdate` on `repo_id`+`number`) as a side effect of `GET /repos/:id/pulls` (`modules/pulls/routes.ts:26-227`) or `GET /pulls/:id` for per-PR detail — i.e. simply *viewing* a repo's PRs is what triggers the GitHub sync. There is no dedicated `POST /repos/:id/sync`-style endpoint. ⇒ Any external client (MCP server, script) that imports a repo and then immediately expects `GET /repos/:id/pulls` to return real data must call that GET at least once to trigger the sync — it isn't populated by the import call itself.
+
+- **`ContainerOverrides` (`platform/container.ts`) does NOT cover `agentsRepo`** — the
+  `container.agentsRepo` getter unconditionally does `new AgentsRepository(this.db)` with no
+  override check (unlike `llm`/`repoIntel`/`git`/etc, which all check `this.overrides.X` first).
+  A hermetic test that needs to mock `agentsRepo.linkedSkills(...)` (e.g. for the
+  `runAgentReview` extraction, `modules/reviews/agent-runner.ts`) can't get there via
+  `new Container(config, db, { overrides })` — it must build a plain object literal with the
+  needed surface (`{ llm: async () => mockLlm, agentsRepo: { linkedSkills: async () => [] },
+  repoIntel: {...} }`) and cast `as unknown as Container`, same pattern already used in
+  `indexer-pipeline.test.ts`/`repo-intel-resync.test.ts`.
+- `reviewer-core`'s `ReviewOutcome.assembly` (`PromptAssembly`,
+  `vendor/shared/contracts/trace.ts`) exposes `callers`/`repo_map`/`pr_description`/`intent` as
+  separate nullable fields, not just the merged `user` string — a test asserting "enrichment
+  section present/absent" (e.g. repo-intel on/off gating) can check `outcome.assembly.callers`/
+  `.repo_map` directly instead of grepping the assembled prompt text for markdown headers, which
+  is more robust to future prompt-formatting changes.
+
+- A per-route `config: { rateLimit: {...} }` object (the pattern `POST /pulls/:id/review` and the new `POST /repos/:id/review-diff` both use) is UNOBSERVABLE behaviorally in an `.it.test.ts`: `src/app.ts` only registers `@fastify/rate-limit` when `config.nodeEnv !== 'test'`, so under `NODE_ENV=test` the route's `config.rateLimit` object is inert JSON — no header, no 429, ever. Fastify's public `app.findRoute()` also can't help: its TS type is `Omit<FindMyWayFindResult, 'store'>`, deliberately excluding the one field (`store.config`) that would hold it. The only way to actually assert "this route declares 10/min" in a test is a source-level check (read `routes.ts`, regex the block after the route's URL literal for the `rateLimit:` config) — not a live HTTP assertion. Don't spend time trying to trigger a real 429 in a hermetic/integration test for a route-level rate limit; it structurally can't happen under the test config.
+- `agents.ciFailOn` defaults to `'critical'` at the schema level (`db/schema/agents.ts`, `.notNull().default('critical')`) and the seed's built-in agents don't override it — so any test asserting `countBlockers(findings, agent.ciFailOn)` against seeded agents can assume `'critical'` without a DB round-trip to check. The seed also grew from 3 to 5 built-in agents (`seedAgents` + `newAgents` in `db/seed.ts`, all provider `openrouter`/`DEFAULT_PROVIDER`) since the original A2 tests were written — any new `.it.test.ts` asserting "N results for N enabled agents" against the default seeded workspace should assert `toBeGreaterThanOrEqual(2)`, not an exact count, or it will break the next time the seed roster grows.
+
+- When a prior feature (e.g. the shipped `blast_summary` `FeatureModelId`) exists only as UNCOMMITTED work in the main checkout (see the worktree-isolation entry above), syncing just the feature's own module directory into a fresh worktree is NOT enough — its transitive registration in `vendor/shared/contracts/platform.ts` (`FEATURE_MODELS`/`FeatureModelId` union) is a separate uncommitted diff and typecheck fails at the *consumer* call site (`blast/service.ts` calling `resolveFeatureModelForRepo(..., 'blast_summary')`) with a union-type error that doesn't mention `platform.ts` at all. Always `diff <main>/path <worktree>/path` on the vendored contract files too, not just the feature's own module files, before assuming a worktree sync is complete.
+- Adding a required field to a widely-shared vendored contract (e.g. `prior_prs` on `BlastRadius`) can break test fixtures OUTSIDE the module the plan calls out. `server/test/contracts.test.ts` is a generic, cross-cutting fixture-round-trip test (parses hardcoded literals for every `PrBrief` building block in one file) — it broke on the same `BlastRadius.parse(...)` requirement the plan's spec correctly flagged for `blast/helpers.test.ts` but didn't mention for this file. Before adding a required field to a shared contract, grep the WHOLE repo for `<Contract>.parse(` / hardcoded literal objects of that shape, not just the module-adjacent test file — a plan's file list can miss a shared fixture test that happens to hardcode the same contract.
 
 ## Tool & Library Notes
 
@@ -100,6 +187,19 @@
 - 2026-07-04: Intent Layer feature spec written (server/specs/intent-layer.md), cross-package (server + reviewer-core + client). Audited existing scaffold first: `pr_intent`/`pr_brief` tables, `Intent` shared contract, `getIntent`/`upsertIntent` (zero call sites), `FEATURE_MODELS.review_intent` entry (wrong default: openai/gpt-4.1), `resolveFeatureModel`, and end-to-end linked-issue resolution in the GitHub adapter were ALL already in place — none of it wired to anything. Plan's real net-new work: flash default, a new `repo_feature_models` table + resolver for per-repo model override, `modules/intent/` classifier module, a new `intent` optional prompt slot in `reviewer-core`, and the client Intent card + Settings override UI. 11 execution steps with disjoint file ownership; no code written yet.
 - 2026-07-05: Smart Diff feature spec written (server/specs/smart-diff.md), cross-package (server + client). Confirmed the `SmartDiff` contract family already exists unwired (see Codebase Patterns) and that the client's "Files changed" viewer has ZERO grouping/toggle logic today (a plain `.map()` over files) — the reference screenshot's "Smart order" toggle and Core/Wiring/Boilerplate sections are the target design, not a partially-built feature. Plan reuses `ReviewRepository` (no new repo), mirrors `IntentService`'s DI/module shape, and keeps `pseudocode_summary` null everywhere (no LLM call, no producer exists). Passed a dedicated pre-implementation `architecture-reviewer` pass (PASS, one non-blocking INFO about news-up vs container `reviewRepo`) before any code was written — plan-review-before-code caught nothing critical here but is a useful gate for onion-layering mistakes on paper vs in diff.
 - 2026-07-05: Smart Diff fully implemented per the spec above: `modules/smart-diff/{constants,helpers,service,routes}.ts` + registration in `modules/index.ts` + `test/smart-diff.it.test.ts` (server); `lib/hooks/smart-diff.ts`, `SmartDiffViewer` component, optional `findingLines`/`highlightLines` props on `FileCard`/`CodeLine`, `lineAnchorId` helper, Smart/Original segmented toggle in `DiffTab.tsx`, and a `["smart-diff", prId]` invalidation in `page.tsx`'s `onRunDone` (client). Server: 128/128 unit tests + typecheck pass; `pnpm db:generate` confirms zero schema drift. The one `.it.test.ts` couldn't actually run in this sandbox (see Tool & Library Notes) but mirrors the already-passing `reviews.it.test.ts` pattern exactly. Note: the plan's proposed test path `smart-diff/routes.it.test.ts` (colocated) was NOT used — the repo's real convention is all `*.it.test.ts` files live flat under `server/test/`, confirmed by grepping every existing one; used that instead.
+
+- 2026-07-09: Blast Radius fully implemented per `server/specs/blast-radius.md` (all 8 steps,
+  including the optional LLM-summary step). Server: `repo-intel/blast-reachability.ts` (pure
+  2-hop reverse-BFS, see Codebase Patterns correction above) + `tryPersistentBlast` extension +
+  per-symbol caller-cap fix, `modules/blast/{helpers,service,routes}.ts`, registered in
+  `modules/index.ts`, new `blast_summary` `FeatureModelId` (flash default from the start).
+  147/147 server unit tests pass (added ~24 across 4 new test files); the new
+  `test/blast.it.test.ts` (6 cases) couldn't run in this sandbox (see Tool & Library Notes
+  entry) but was written and typechecked against the real schema. Client: `usePrBlast`/
+  `useSummarizeBlast` hooks, `BlastRadiusCard` (compact, Tree-only, on Overview) + `BlastTab`
+  (full Tree/Graph, `BlastGraph` is a hand-rolled fixed-column SVG — no new chart dependency),
+  wired into `page.tsx`/`PrDetailHeader`/`OverviewTab`, reusing the existing `onOpenInDiff`
+  click-to-code mechanism end to end. 41/41 client tests pass. Both `pnpm typecheck` clean.
 
 ## Open Questions
 

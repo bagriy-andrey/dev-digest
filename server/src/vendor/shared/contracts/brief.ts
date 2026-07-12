@@ -36,9 +36,17 @@ export const DownstreamImpact = z.object({
 });
 export type DownstreamImpact = z.infer<typeof DownstreamImpact>;
 
+export const PriorPr = z.object({
+  id: z.string(),
+  number: z.number().int(),
+  title: z.string(),
+});
+export type PriorPr = z.infer<typeof PriorPr>;
+
 export const BlastRadius = z.object({
   changed_symbols: z.array(ChangedSymbol),
   downstream: z.array(DownstreamImpact),
+  prior_prs: z.array(PriorPr),
   summary: z.string(),
 });
 export type BlastRadius = z.infer<typeof BlastRadius>;

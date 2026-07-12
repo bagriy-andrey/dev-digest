@@ -1,4 +1,19 @@
 {
+  "env": {
+    "ENABLE_TOOL_SEARCH": "true"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm *)",
+      "Bash(cd mcp-server && npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(rsync *)",
+      "Bash(cp *)",
+      "Bash(find *)",
+      "Bash(mkdir *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
