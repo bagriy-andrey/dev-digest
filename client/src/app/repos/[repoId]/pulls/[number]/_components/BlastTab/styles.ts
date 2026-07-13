@@ -47,13 +47,40 @@ export const s = {
     gap: 8,
   } satisfies CSSProperties,
   symbolTitleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    textAlign: "left",
     marginBottom: 4,
   } satisfies CSSProperties,
   symbolName: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
     fontSize: 15,
     fontWeight: 700,
     color: "var(--text-primary)",
   } satisfies CSSProperties,
+  symbolIcon: {
+    color: "var(--text-muted)",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  symbolCountTag: {
+    fontSize: 12,
+    fontWeight: 500,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  chevron: (open: boolean): CSSProperties => ({
+    color: "var(--text-muted)",
+    transform: open ? "rotate(0deg)" : "rotate(-90deg)",
+    transition: "transform 120ms ease",
+    flexShrink: 0,
+  }),
   sectionLabel: {
     fontSize: 11,
     fontWeight: 700,
@@ -69,6 +96,15 @@ export const s = {
     display: "flex",
     flexDirection: "column",
     gap: 4,
+  } satisfies CSSProperties,
+  callerLine: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  } satisfies CSSProperties,
+  callerIcon: {
+    color: "var(--text-muted)",
+    flexShrink: 0,
   } satisfies CSSProperties,
   chipRow: {
     display: "flex",
@@ -109,12 +145,6 @@ export const s = {
     fontWeight: 600,
     color: "var(--text-primary)",
   } satisfies CSSProperties,
-  chevron: (open: boolean): CSSProperties => ({
-    color: "var(--text-muted)",
-    transform: open ? "rotate(0deg)" : "rotate(-90deg)",
-    transition: "transform 120ms ease",
-    flexShrink: 0,
-  }),
   priorList: {
     margin: 0,
     padding: "8px 0 2px 22px",

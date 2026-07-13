@@ -86,6 +86,19 @@
 
 ## Recurring Errors & Fixes
 
+- **A client-aborted `devdigest review` call does NOT stop the server from continuing to process
+  it.** After a first CLI invocation hit the default 30s `DEVDIGEST_HTTP_TIMEOUT_MS` and the
+  `AbortController` fired client-side ("This operation was aborted"), the server's `POST
+  /repos/:id/review-diff` request never logged "request completed" — not then, and not minutes
+  later — Fastify/the agent pipeline has no cancellation wired to the client socket closing.
+  Re-invoking the CLI (even with a longer timeout) while that first request was presumably still
+  running server-side produced a plain "fetch failed" (a different error than an abort) instead of
+  a real result, and neither request ever completed in the log. Killing and restarting the API
+  process (`pnpm dev` in `server/`) cleared the stuck state; a single clean invocation afterward
+  completed normally. ⇒ If a `devdigest review` call times out or errors client-side, don't
+  immediately re-run it against the same repo — either wait it out or restart the API process
+  first, since the previous run may still be occupying the pipeline.
+
 ## Session Notes
 
 ## Open Questions

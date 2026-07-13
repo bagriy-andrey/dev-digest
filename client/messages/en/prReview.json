@@ -144,6 +144,9 @@
     "statsCallers": "{count} {count, plural, one {caller} other {callers}}",
     "statsEndpoints": "{count} {count, plural, one {endpoint} other {endpoints}}",
     "statsCrons": "{count} {count, plural, one {cron} other {crons}}",
-    "priorPrs": "Prior PRs touching these files"
+    "priorPrs": "Prior PRs touching these files",
+    "showMoreCallers": "+{count} more · See full map",
+    "showMoreEndpoints": "+{count} more",
+    "graphMoreCallers": "+{count} more…"
   }
 }

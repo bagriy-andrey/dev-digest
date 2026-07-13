@@ -73,9 +73,16 @@ export const s = {
     flexShrink: 0,
   }),
   symbolName: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
     fontSize: 13,
     fontWeight: 600,
     color: "var(--text-primary)",
+  } satisfies CSSProperties,
+  symbolIcon: {
+    color: "var(--text-muted)",
+    flexShrink: 0,
   } satisfies CSSProperties,
   countTag: {
     fontSize: 11.5,
@@ -95,17 +102,42 @@ export const s = {
     flexDirection: "column",
     gap: 4,
   } satisfies CSSProperties,
+  callerLine: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  } satisfies CSSProperties,
+  callerIcon: {
+    color: "var(--text-muted)",
+    flexShrink: 0,
+  } satisfies CSSProperties,
   chipRow: {
     display: "flex",
     flexWrap: "wrap",
     gap: 6,
+    alignItems: "center",
+  } satisfies CSSProperties,
+  showMore: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--accent-text)",
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    textAlign: "left",
   } satisfies CSSProperties,
   statsLine: {
     display: "flex",
     alignItems: "center",
-    gap: 6,
+    gap: 14,
     fontSize: 12,
     color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  statItem: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
   } satisfies CSSProperties,
   priorSection: {
     borderTop: "1px solid var(--border)",

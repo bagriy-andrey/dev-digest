@@ -14,6 +14,12 @@ export const s = {
     strokeWidth: 1,
     strokeDasharray: "3 3",
   } satisfies CSSProperties,
+  edgeMore: {
+    stroke: "var(--border-strong)",
+    strokeWidth: 1,
+    strokeDasharray: "2 2",
+    opacity: 0.6,
+  } satisfies CSSProperties,
   clickable: {
     cursor: "pointer",
   } satisfies CSSProperties,
@@ -42,5 +48,15 @@ export const s = {
     fill: "var(--accent-text)",
     fontSize: 11,
     fontWeight: 600,
+  } satisfies CSSProperties,
+  moreRect: {
+    fill: "none",
+    stroke: "var(--border)",
+    strokeDasharray: "3 3",
+  } satisfies CSSProperties,
+  moreText: {
+    fill: "var(--text-muted)",
+    fontSize: 11,
+    fontStyle: "italic",
   } satisfies CSSProperties,
 } as const;

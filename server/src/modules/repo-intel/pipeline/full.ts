@@ -27,7 +27,7 @@ import type { RepoRef } from '@devdigest/shared';
 import type { Container } from '../../../platform/container.js';
 import { withTimeout } from '../../../platform/resilience.js';
 import { parseSymbols, parseReferences, langForFile } from '../../../adapters/astgrep/index.js';
-import { extractEndpoints, extractCrons } from '../../../adapters/codeindex/extract.js';
+import { extractEndpoints, extractCrons, extractNestRoutes } from '../../../adapters/codeindex/extract.js';
 import {
   DEFAULT_REPO_MAP_TOKEN_BUDGET,
   INDEX_SOFT_BUDGET_MS,
@@ -183,10 +183,15 @@ export async function runFullIndex(
         }
         // Per-file facts (endpoints/crons) so blast reads from file_facts
         // instead of re-parsing the clone (T3 blast migration).
-        const endpoints = extractEndpoints(source);
+        const nestRoutes = extractNestRoutes(source);
+        const endpoints = [...extractEndpoints(source), ...nestRoutes.map((r) => r.route)];
         const crons = extractCrons(source);
-        if (endpoints.length > 0 || crons.length > 0) {
-          factsBuf.push({ filePath: relPath, endpoints, crons });
+        const routeSymbols: Record<string, string[]> = {};
+        for (const r of nestRoutes) {
+          (routeSymbols[r.methodName] ??= []).push(r.route);
+        }
+        if (endpoints.length > 0 || crons.length > 0 || Object.keys(routeSymbols).length > 0) {
+          factsBuf.push({ filePath: relPath, endpoints, crons, routeSymbols });
         }
         filesIndexed += 1;
       } catch (err) {

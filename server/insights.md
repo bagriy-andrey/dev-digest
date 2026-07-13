@@ -15,6 +15,99 @@
   2. Once (1) is fixed, a SECOND, more insidious symptom surfaces: both snapshots also silently DROPPED the `agent_runs.cost_usd` column from their `tables` section — even though migration `0010_cheerful_shard.sql` (from the "add costs to pr review" commit, `b058639`) genuinely adds it and it IS applied in the real DB. The merge kept `0010`'s snapshot correct but based `0011`/`0012` on a pre-`b058639` schema state, so their column lists silently regressed. Symptom: any subsequent `db:generate` — even for a totally unrelated new table — sees `cost_usd` as "missing" (relative to the stale 0012 snapshot) and generates a spurious `ALTER TABLE agent_runs ADD COLUMN cost_usd` that fails at `db:migrate` time with `column "cost_usd" ... already exists`, because the column was never actually missing — only its snapshot bookkeeping was. **Do not "fix" this by generating a catch-up migration for the phantom column** (that was tried and reverted this session) — the correct fix is repairing the snapshot's `columns` map to match reality, not adding a redundant migration.
   Both snapshot `id`/`prevId` AND the `cost_usd` column entry were manually repaired directly in `0011_snapshot.json`/`0012_snapshot.json`. The runtime migrator (`drizzle-orm/postgres-js/migrator` via `src/db/migrate.ts`) was never affected by any of this — it only reads `_journal.json` and applies `.sql` files in order by hash, so `pnpm db:migrate` worked fine throughout. ⇒ If `db:generate` ever again proposes a change to a column you believe already exists and is already migrated, suspect stale/corrupted snapshot metadata before assuming real drift — check `git log -- <migration>.sql` and grep the column into every snapshot in the chain, don't just trust the newest one.
 
+- **`extractEndpoints()` (`server/src/adapters/codeindex/extract.ts:182-195`) only recognizes
+  Express/Fastify-style route REGISTRATION CALLS — `verb.method('/path', ...)` or a `{method,
+  url}` object literal — via regex. It does NOT recognize decorator-based routing (NestJS
+  `@Controller()`/`@Get()`/`@Post()` etc., or any other decorator-driven framework): a NestJS
+  controller file has no `app.get(...)`-shaped call anywhere, so `file_facts.endpoints` is `[]`
+  for every such file, unconditionally — not a coverage gap that sometimes misses a route, a
+  total blind spot for the whole framework. Symptom in Blast Radius: `impactedEndpoints`/
+  `endpoints_affected` (`repo-intel/service.ts:420-442`) stays empty even when
+  `tryPersistentBlast`'s reachability walk correctly reaches a NestJS controller file within
+  `BFS_DEPTH` — the callers list is right, only the endpoint attribution is silently empty.
+  Confirmed via a minimal repro: `extractEndpoints()` called directly on a `@Controller()`/`@Get()`
+  source string returns `[]`. ⇒ Blast Radius / repo-intel endpoint detection is scoped to this
+  project's own Fastify convention; testing or demoing it against a NestJS (or any
+  decorator-routed) target repo will always show `0 endpoints` regardless of how correct the
+  reachability graph is. Fixing this needs a second, decorator-aware extractor (parse
+  `@Controller(prefix)` + method-level `@Get/@Post/...` decorators), not a BFS_DEPTH or
+  caller-resolution change.
+
+- **`extract.ts`'s shared `METHOD_RE` (used by `extractSymbols` AND the new `extractNestRoutes`)
+  fails on real-world NestJS handler signatures in TWO distinct, compounding ways** — found only
+  by testing against an actual cloned NestJS repo (`bagriy-andrey/ai-stock-app`), not caught by
+  synthetic unit fixtures written before that: (1) a decorated parameter on the SAME line as the
+  method (`getWatchlist(@Request() request) {`) defeats `[^)]*`'s single-level paren matching —
+  the regex stops at `@Request()`'s own `)`, never reaching the method's real closing paren, so
+  the whole match fails silently (not a partial/wrong match — `null`). (2) the far more common
+  real style — ONE decorated param per line (`@Request() request: X,` / `@Query() query: Y,` each
+  on their own line, exactly how `portfolio.controller.ts`/`transactions.controller.ts`/
+  `watchlist.controller.ts` are written) puts the method name+`(` and the closing `)...{` on
+  DIFFERENT lines — `METHOD_RE` can never match this AT ALL, regardless of (1)'s fix, since it
+  requires the whole signature on one line. Fixed locally inside `extractNestRoutes` (not by
+  changing the shared `METHOD_RE`/`extractSymbols`, to avoid an unreviewed blast radius on
+  everything else that already depends on their exact behavior): `stripParamDecorators()` (regex,
+  strips one level of `@Foo(...)` calls before matching) for (1), and
+  `findMultilineMethodBodyStart()` (bounded 20-line forward paren-balance scan) for (2). ⇒ Any
+  future regex-based TS extractor claiming to handle "real" NestJS/decorator-heavy code MUST be
+  tested against an actual cloned repo with that style, not just single-line synthetic fixtures —
+  synthetic fixtures silently hide exactly this class of bug because it's easy to accidentally
+  write single-line test signatures that don't reflect real formatting conventions.
+
+- **`sanitizeLine()` (`extract.ts`) blanks string-literal CONTENTS** (`'portfolio'` → `""`) —
+  correct for `METHOD_RE`/`CLASS_DECL_RE` structural matching (they don't care what's inside a
+  string) but silently destroys the actual VALUE when a caller needs the literal itself. Bit
+  `extractNestRoutes` initially: matching `@Controller('portfolio')` against a `sanitizeLine`d
+  line always captured an EMPTY prefix (the quotes survive, the content between them doesn't),
+  producing routes like `GET /` instead of `GET /portfolio/...` — no error, no test failure until
+  the resulting path was asserted, easy to miss if a test only checks "a route was found" without
+  checking its exact string. Fixed with a separate, lighter `stripLineComment()` (removes only
+  trailing `//` comments) used specifically where the literal argument value is needed. ⇒ Before
+  reusing `sanitizeLine` in a new extractor, ask whether the extractor needs a string's STRUCTURE
+  (call it) or its CONTENT (don't — use raw/comment-stripped only).
+
+- **`resyncRepo`/`RESYNC_JOB_KIND` runs `runIncremental`, which only re-parses files whose git
+  content changed since `lastIndexedSha`** — it has no concept of "the indexer's own extraction
+  logic changed." After editing `extractNestRoutes`/`extractEndpoints` and hitting
+  `POST /repos/:id/resync` against an already-indexed demo repo, `file_facts` rows for untouched
+  files stayed exactly as they were before the code change (verified via direct
+  `SELECT * FROM file_facts` — zero rows for known-NestJS controller files after a resync that
+  reported success). Only calling `container.repoIntel.indexRepo(repoId)` directly (a FULL index,
+  bypassing the git-diff-based incremental gate) re-ran the new extractor against every file and
+  produced the expected `route_symbols`. ⇒ To verify an indexer/extractor LOGIC change against an
+  already-indexed local repo, force a full reindex — `resync` will silently appear to succeed
+  while doing nothing for files whose source didn't change, which reads exactly like "my fix
+  doesn't work" when it's actually "the file was never re-parsed."
+
+- **`DepCruiseGraph.buildEdges` (`adapters/depgraph/index.ts`, dependency-cruiser wrapper) drops
+  MOST of a file's real local import edges on at least one real repo** — confirmed via direct
+  `SELECT` on `file_edges` for `bagriy-andrey/ai-stock-app`'s `portfolio.controller.ts`: only ONE
+  edge persisted (`-> jwt-auth.guard.ts`) despite the file's own source importing ~10 local
+  modules including `PortfolioService`/`PortfolioPerformanceService` (constructor-injected) and
+  several DTOs. This independently blocks Blast Radius's hop-2 reverse-import reachability from
+  ever reaching a controller through its service layer on this repo, REGARDLESS of the NestJS
+  endpoint-detection fix above (`route_symbols` was correctly populated on the controller file
+  itself — the graph never gets there to read it). Root cause not investigated (tsconfig
+  path-alias resolution in this specific monorepo layout is one candidate — `buildEdges` only
+  checks for a ROOT `tsconfig.json`, `index.ts:62`, which may not cover an
+  `apps/api`-nested package's own module resolution). ⇒ A "0 endpoints" or "missing hop-2 caller"
+  symptom on a real repo can ALSO be a `file_edges` graph-completeness problem, not just an
+  endpoint-detection or attribution problem — check `file_edges` directly for the files involved
+  before assuming the bug is in `extract.ts` or `tryPersistentBlast`. Worth its own investigation/
+  spec; not attempted here (out of scope for the NestJS-decorator-detection fix).
+
+- **`tryPersistentBlast`'s Phase 2 hop-2 caller dedup (`repo-intel/service.ts:543`) keys
+  `existingHop1` by `file|symbolName` only — no line number/enclosing-method — so it silently
+  drops a genuinely NEW call site added by a PR when the same file already has ANY reference to
+  that symbol in the persisted index.** E.g. if `market-movers.controller.ts` already calls
+  `getAuthenticatedUserId` once, and the PR adds a second call to the same function from a
+  different handler in the same file, the new call site never gets added to `callers[]` — blast
+  radius misses a real new caller. Found by dogfooding the pre-push CLI (`devdigest review
+  --mode working`, `specs/pre-push-cli.md`) against this repo's own working-tree diff — the
+  General Reviewer agent flagged it as CRITICAL. ⇒ The dedup key needs the line number (or
+  enclosing symbol) to distinguish distinct call sites within the same file, not just
+  `file|symbolName`. Not yet fixed as of 2026-07-13.
+
 ## Codebase Patterns
 
 - `agent_skills` join table now has `enabled boolean NOT NULL DEFAULT true` (migration 0011). Skill injection in `run-executor.ts` must filter BOTH `link.enabled && link.skill.enabled` — one flag is global (skill disabled for everyone), the other is per-agent. Filtering only one silently passes disabled skills through.
@@ -200,6 +293,34 @@
   (full Tree/Graph, `BlastGraph` is a hand-rolled fixed-column SVG — no new chart dependency),
   wired into `page.tsx`/`PrDetailHeader`/`OverviewTab`, reusing the existing `onOpenInDiff`
   click-to-code mechanism end to end. 41/41 client tests pass. Both `pnpm typecheck` clean.
+
+- 2026-07-12: Wrote `server/specs/blast-radius-nestjs-endpoints.md` fixing the NestJS
+  decorator-routing blind spot (see "What Doesn't Work" entry above). Two-phase design: H1
+  (`extractNestRoutes`, a new decorator-aware scanner alongside — not merged into —
+  `extractEndpoints`, reusing `extractSymbols`'s class/brace-tracking pattern; new
+  `file_facts.route_symbols` jsonb column) fixes the "0 endpoints" bug outright and is
+  independently shippable. H2 (method-scoped hop-1 attribution in `tryPersistentBlast`, keying off
+  `BlastCallerRow.symbol` into `routeSymbols[symbol]` with a fallback to the old file-level
+  `endpoints` array when the caller isn't itself a decorated handler) fixes a secondary
+  over-attribution problem (a changed symbol reached via ANY caller in a controller file
+  currently inherits ALL of that file's routes, not just the calling method's own). Explicitly
+  scoped hop-2 (reverse-import reachability) to stay file-level — no per-symbol call data exists
+  at that hop by the existing `reverseReachableFiles` design (`server/insights.md`'s 2026-07-09
+  correction entry), so precision there was ruled out-of-scope rather than left silently unfixed.
+  No code written yet.
+
+- 2026-07-12: Implemented `server/specs/blast-radius-nestjs-endpoints.md` end to end (all 5
+  steps, H1+H2). `extractNestRoutes` (`extract.ts`) + new `file_facts.route_symbols` jsonb column
+  (migration `0014_spicy_radioactive_man.sql`) + pipeline/repository wiring +
+  method-scoped hop-1 attribution in `tryPersistentBlast`. 162/162 unit tests pass (+15 new:
+  11 in `extract.test.ts`, 3 in the new `repo-intel-blast-nest.test.ts`), `pnpm typecheck` clean.
+  Two real bugs surfaced only by testing against an actual cloned NestJS repo, not caught by
+  synthetic fixtures — see "What Doesn't Work" entries above: `METHOD_RE`'s multi-line-signature
+  blindness (fixed) and `DepCruiseGraph.buildEdges` dropping most real import edges (found,
+  documented, explicitly NOT fixed — out of scope). End-to-end verification against the real demo
+  PR (`bagriy-andrey/ai-stock-app` #5) confirmed `route_symbols` now populates correctly for all
+  3 PR-relevant controllers post-full-reindex, but `impactedEndpoints` on that specific PR is
+  still empty because of the separate `file_edges` gap, not this fix.
 
 ## Open Questions
 

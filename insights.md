@@ -91,7 +91,66 @@
   `client/src/lib/feature-models.ts`; the vendored client copy is types-only for the UI. (These
   two client files have already drifted for the `conventions` entry — don't assume they match.)
 
+- **Blast Radius has two independent staleness traps, not one** — a PR that gets new commits
+  pushed after its first Blast Radius view can show stale data for two unrelated reasons that
+  compound: (1) server-side, `RepoIntelService.getBlastRadius` (`server/src/modules/repo-intel/
+  service.ts:222`) reads the repo's **persisted index** (`repo_index_state`/`lastIndexedSha`),
+  which only advances via a manual `POST /repos/:id/resync` (or a full reindex) — pushing commits
+  to a PR branch never triggers it automatically, and `resyncRepo` itself only advances the clone
+  to `origin/<defaultBranch>`, not the PR branch. (2) client-side, `usePrBlast`'s query key
+  (`["pr-blast", prId]`, `client/src/lib/hooks/blast.ts:10`) is **never invalidated anywhere** in
+  `page.tsx` — `onRunDone` deliberately skips it per `server/specs/blast-radius.md:322` ("blast
+  radius is diff-derived, not review-run-derived," which is correct for review-run completion),
+  but nothing invalidates it when the PR's *files* change either, so with the default 30s
+  `staleTime` the UI can sit on a fetch from before the latest push indefinitely if the tab stays
+  mounted. ⇒ Fixing "Blast Radius doesn't update" needs both: an automatic (or clearly-surfaced
+  manual) reindex trigger tied to new PR commits, AND a `pr-blast` invalidation on PR-detail
+  refresh — either alone leaves the other trap in place.
+
+  **2026-07-12 field confirmation + diagnostic signature:** a real case showed a THIRD compounding
+  layer: `pr_files` itself (not just the repo-intel index) can be stale, because its refresh
+  (`server/src/modules/pulls/routes.ts:251`, delete+reinsert on `GET /pulls/:id`) silently no-ops
+  without `GITHUB_TOKEN`/`GITHUB_PAT` configured (`:289`, "serving persisted detail"). The
+  observable symptom is diagnostic: Blast Radius's `changed_symbols` count splits cleanly into two
+  unrelated groups — symbols matching files in the PR's CURRENT GitHub diff, plus symbols from
+  files that aren't in the current diff at all (leftover from an earlier commit/force-push). ⇒ To
+  confirm this specific cause (vs. the repo-intel-index trap above), diff the blast panel's symbol
+  list against `pull_request_read(method: get_files)`'s actual filenames for that PR — an
+  unexplained symbol from a file absent from that list means `pr_files` is holding a stale
+  snapshot, point first at whether `GITHUB_TOKEN` is set before assuming a client-cache/index
+  problem.
+
+  **2026-07-12 second field confirmation — a brand-new PR-branch-only FILE is invisible even when
+  `pr_files` is fully correct.** On the same real PR, after confirming `pr_files` matched GitHub
+  exactly (§ above), `changed_symbols` STILL omitted every symbol from a file that was `status:
+  "added"` only on the PR's own branch (`get-authenticated-user-id.ts`, never merged to
+  `main`) — not stale, just entirely absent, because `tryPersistentBlast`'s `getSymbolRows` reads
+  the persisted `symbols` table, which only ever contains what was indexed off
+  `origin/<defaultBranch>` (trap (1) above) — a file that exists SOLELY on the PR branch was never
+  cloned/parsed at all, at any point, regardless of resync timing. This is a distinct, more
+  fundamental failure mode than "stale" data (nothing to become stale — the file was never
+  indexed once): any net-new file added within an open PR is structurally invisible to Blast
+  Radius's changed-symbol resolution until that PR merges. ⇒ Diagnostic refinement: a symbol
+  missing entirely (not just wrong-but-present) from `changed_symbols`, for a file whose `status`
+  is `"added"` on the PR, points at this default-branch-only indexing architecture, not at
+  `pr_files`/cache staleness — fixing it needs PR-branch-aware symbol resolution (e.g. an
+  on-demand extraction pass over the PR's own diff content for files the persisted index doesn't
+  know), not just a better resync trigger.
+
 ## Tool & Library Notes
+
+- **`./scripts/dev.sh` backgrounded via a trailing `&` in an agent shell "completes" almost
+  immediately — that only means the wrapper line returned, not that the dev stack stopped.**
+  `dev.sh` itself starts the API with `&` (`SERVER_PID=$!`) and then runs the client's `pnpm dev`
+  in the FOREGROUND, normally blocking forever with a `trap cleanup EXIT INT TERM` that kills
+  `SERVER_PID` on exit. Piping the whole script through `... | tee log &` and backgrounding that
+  compound command detaches `dev.sh` as an orphaned process from the invoking shell — the Bash
+  tool's own "command completed" notification fires as soon as the two wrapper lines (the launch +
+  an echo) finish, while `dev.sh` (and the server/client processes under it) keep running
+  independently, invisible to any later `wait`/exit-code check on that task. ⇒ To confirm the dev
+  stack is actually still up (or to stop it), check with `ps`/`curl` directly — don't infer
+  liveness from the backgrounding task's completion status, and don't assume `kill`ing the
+  processes will be caught by `dev.sh`'s own trap-based cleanup once it's been detached like this.
 
 - **`agent-browser` (Vercel's CDP browser CLI) is usable for manual/one-off UI verification** even
   though it isn't preinstalled: `npx -y agent-browser@latest install` downloads a headless Chrome

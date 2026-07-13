@@ -116,7 +116,12 @@ describe("BlastRadiusCard", () => {
     });
     renderWithIntl(<BlastRadiusCard prId="pr1" repoId="r1" onOpenInDiff={vi.fn()} />);
 
-    expect(screen.getByText("2 symbols · 2 callers · 1 endpoint · 1 cron")).toBeInTheDocument();
+    // Each stat now renders as its own icon + text span (no "·"-joined single
+    // text node) — assert per-segment, per client/insights.md's RTL guidance.
+    expect(screen.getByText("2 symbols")).toBeInTheDocument();
+    expect(screen.getByText("2 callers")).toBeInTheDocument();
+    expect(screen.getByText("1 endpoint")).toBeInTheDocument();
+    expect(screen.getByText("1 cron")).toBeInTheDocument();
   });
 
   it("hides the prior-PRs section when prior_prs is empty", () => {

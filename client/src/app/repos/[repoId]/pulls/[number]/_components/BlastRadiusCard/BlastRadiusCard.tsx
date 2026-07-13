@@ -10,6 +10,7 @@ import { useTranslations } from "next-intl";
 import { SectionLabel, Badge, Button, MonoLink, Icon } from "@devdigest/ui";
 import { usePrBlast, useSummarizeBlast } from "@/lib/hooks";
 import { computeBlastStats } from "@/lib/blast-stats";
+import { MAX_CARD_CALLERS, MAX_CARD_ENDPOINTS } from "./constants";
 import { s } from "./styles";
 
 interface BlastRadiusCardProps {
@@ -70,10 +71,22 @@ export function BlastRadiusCard({ prId, repoId, onOpenInDiff }: BlastRadiusCardP
             {summarize.isError && <div style={s.error}>{t("blast.summarizeError")}</div>}
             {stats && (
               <div style={s.statsLine}>
-                {t("blast.statsSymbols", { count: stats.symbols })} ·{" "}
-                {t("blast.statsCallers", { count: stats.callers })} ·{" "}
-                {t("blast.statsEndpoints", { count: stats.endpoints })} ·{" "}
-                {t("blast.statsCrons", { count: stats.crons })}
+                <span style={s.statItem}>
+                  <Icon.Code size={13} />
+                  {t("blast.statsSymbols", { count: stats.symbols })}
+                </span>
+                <span style={s.statItem}>
+                  <Icon.CornerDownRight size={13} />
+                  {t("blast.statsCallers", { count: stats.callers })}
+                </span>
+                <span style={s.statItem}>
+                  <Icon.Globe size={13} />
+                  {t("blast.statsEndpoints", { count: stats.endpoints })}
+                </span>
+                <span style={s.statItem}>
+                  <Icon.Clock size={13} />
+                  {t("blast.statsCrons", { count: stats.crons })}
+                </span>
               </div>
             )}
             <div style={s.symbolList}>
@@ -89,6 +102,7 @@ export function BlastRadiusCard({ prId, repoId, onOpenInDiff }: BlastRadiusCardP
                     >
                       <Icon.ChevronDown size={14} style={s.chevron(expanded)} />
                       <span className="mono" style={s.symbolName}>
+                        <Icon.Code size={13} style={s.symbolIcon} />
                         {d.symbol}()
                       </span>
                       <span style={s.countTag}>{t("blast.callersCount", { count: d.callers.length })}</span>
@@ -102,28 +116,44 @@ export function BlastRadiusCard({ prId, repoId, onOpenInDiff }: BlastRadiusCardP
                         {d.callers.length === 0 ? (
                           <div style={s.empty}>{t("blast.noCallers")}</div>
                         ) : (
-                          <ul style={s.callerList}>
-                            {d.callers.map((c, i) => (
-                              <li key={`${c.file}:${c.line}:${i}`}>
-                                <MonoLink onClick={() => onOpenInDiff(c.file, c.line)}>
-                                  {c.file}:{c.line}
-                                </MonoLink>
-                              </li>
-                            ))}
-                          </ul>
+                          <>
+                            <ul style={s.callerList}>
+                              {d.callers.slice(0, MAX_CARD_CALLERS).map((c, i) => (
+                                <li key={`${c.file}:${c.line}:${i}`} style={s.callerLine}>
+                                  <Icon.CornerDownRight size={12} style={s.callerIcon} />
+                                  <MonoLink onClick={() => onOpenInDiff(c.file, c.line)}>
+                                    {c.file}:{c.line}
+                                  </MonoLink>
+                                </li>
+                              ))}
+                            </ul>
+                            {d.callers.length > MAX_CARD_CALLERS && (
+                              <Link href="?tab=blast" style={s.showMore}>
+                                {t("blast.showMoreCallers", { count: d.callers.length - MAX_CARD_CALLERS })}
+                              </Link>
+                            )}
+                          </>
                         )}
                         {impactCount > 0 && (
                           <div style={s.chipRow}>
-                            {d.endpoints_affected.map((e) => (
+                            {d.endpoints_affected.slice(0, MAX_CARD_ENDPOINTS).map((e) => (
                               <Badge key={e} bg="var(--accent-bg, var(--bg-hover))" color="var(--accent-text)" mono>
                                 {e}
                               </Badge>
                             ))}
-                            {d.crons_affected.map((c) => (
-                              <Badge key={c} icon="Clock" mono>
-                                {c}
-                              </Badge>
-                            ))}
+                            {d.endpoints_affected.length <= MAX_CARD_ENDPOINTS &&
+                              d.crons_affected.map((c) => (
+                                <Badge key={c} icon="Clock" mono>
+                                  {c}
+                                </Badge>
+                              ))}
+                            {d.endpoints_affected.length > MAX_CARD_ENDPOINTS && (
+                              <Link href="?tab=blast" style={s.showMore}>
+                                {t("blast.showMoreEndpoints", {
+                                  count: d.endpoints_affected.length - MAX_CARD_ENDPOINTS + d.crons_affected.length,
+                                })}
+                              </Link>
+                            )}
                           </div>
                         )}
                       </div>

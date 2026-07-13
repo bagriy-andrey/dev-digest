@@ -81,6 +81,11 @@ export const fileFacts = pgTable(
     filePath: text('file_path').notNull(),
     endpoints: jsonb('endpoints').notNull().default([]),
     crons: jsonb('crons').notNull().default([]),
+    // Method-scoped route ownership: `{ methodName: routes[] }` for decorator-routed handlers
+    // (e.g. NestJS `@Get()`), so blast attribution can credit a route to the SPECIFIC caller
+    // method that declares it instead of the whole file's flat `endpoints` list. Absent/empty
+    // for files with no decorator-based routes (including every non-NestJS file).
+    routeSymbols: jsonb('route_symbols').notNull().default({}),
   },
   (t) => ({
     pk: primaryKey({ columns: [t.repoId, t.filePath] }),

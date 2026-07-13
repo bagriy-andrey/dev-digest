@@ -46,6 +46,15 @@ export class BlastService {
     return this.repo.getPrsTouchingFiles(repoId, prId, paths);
   }
 
+  /** path -> raw GitHub patch text, for files the persisted repo-intel index has no data for
+   *  (server/specs/blast-radius-pr-branch-symbols.md). Files with no `patch` (GitHub omits it
+   *  for very large/binary diffs) are simply absent from the map — repo-intel degrades cleanly
+   *  for those, same as today. Shared by `get()`/`summarize()` for the same reason as
+   *  `priorPrsFor` above. */
+  private patchesByFile(files: { path: string; patch: string | null }[]): Record<string, string> {
+    return Object.fromEntries(files.filter((f) => f.patch).map((f) => [f.path, f.patch!]));
+  }
+
   /**
    * Compute the blast radius for a PR (workspace-scoped). Never persists
    * anything — every call recomputes from the live index.
@@ -62,6 +71,7 @@ export class BlastService {
     const result = await this.container.repoIntel.getBlastRadius(
       pull.repoId,
       files.map((f) => f.path),
+      this.patchesByFile(files),
     );
     const prior_prs = await this.priorPrsFor(
       pull.repoId,
@@ -91,6 +101,7 @@ export class BlastService {
     const result = await this.container.repoIntel.getBlastRadius(
       pull.repoId,
       files.map((f) => f.path),
+      this.patchesByFile(files),
     );
     const prior_prs = await this.priorPrsFor(
       pull.repoId,

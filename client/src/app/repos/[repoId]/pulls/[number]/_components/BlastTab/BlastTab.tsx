@@ -11,6 +11,7 @@ import { SectionLabel, Button, EmptyState, MonoLink, Icon, Badge, Skeleton } fro
 import { usePrBlast, useSummarizeBlast } from "@/lib/hooks";
 import { computeBlastStats } from "@/lib/blast-stats";
 import { BlastGraph } from "./_components/BlastGraph";
+import { AUTO_COLLAPSE_THRESHOLD } from "./constants";
 import { s } from "./styles";
 
 interface BlastTabProps {
@@ -25,6 +26,18 @@ export function BlastTab({ prId, repoId, onOpenInDiff }: BlastTabProps) {
   const summarize = useSummarizeBlast(prId);
   const [view, setView] = React.useState<"tree" | "graph">("tree");
   const [priorOpen, setPriorOpen] = React.useState(false);
+  // Default expanded/collapsed is DERIVED from each symbol's size (see AUTO_COLLAPSE_THRESHOLD);
+  // this set only tracks symbols the user has manually flipped away from that default, so a
+  // background refetch (new `blast` object, same data) never resets a user's manual toggle.
+  const [toggledSymbols, setToggledSymbols] = React.useState<Set<string>>(new Set());
+  const toggleSymbol = (symbol: string) => {
+    setToggledSymbols((prev) => {
+      const next = new Set(prev);
+      if (next.has(symbol)) next.delete(symbol);
+      else next.add(symbol);
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
@@ -69,9 +82,13 @@ export function BlastTab({ prId, repoId, onOpenInDiff }: BlastTabProps) {
       </SectionLabel>
 
       <div style={s.statsLine}>
+        <Icon.Code size={13} />
         {t("blast.statsSymbols", { count: stats.symbols })} ·{" "}
+        <Icon.CornerDownRight size={13} />
         {t("blast.statsCallers", { count: stats.callers })} ·{" "}
+        <Icon.Globe size={13} />
         {t("blast.statsEndpoints", { count: stats.endpoints })} ·{" "}
+        <Icon.Clock size={13} />
         {t("blast.statsCrons", { count: stats.crons })}
       </div>
 
@@ -87,48 +104,64 @@ export function BlastTab({ prId, repoId, onOpenInDiff }: BlastTabProps) {
 
       {view === "tree" ? (
         <div style={s.symbolList}>
-          {blast.downstream.map((d) => (
-            <div key={d.symbol} style={s.symbolBlock}>
-              <div style={s.symbolTitleRow}>
-                <span className="mono" style={s.symbolName}>
-                  {d.symbol}()
-                </span>
+          {blast.downstream.map((d) => {
+            const impactCount = d.endpoints_affected.length + d.crons_affected.length;
+            const defaultExpanded = d.callers.length + impactCount <= AUTO_COLLAPSE_THRESHOLD;
+            const expanded = toggledSymbols.has(d.symbol) ? !defaultExpanded : defaultExpanded;
+            return (
+              <div key={d.symbol} style={s.symbolBlock}>
+                <button type="button" onClick={() => toggleSymbol(d.symbol)} style={s.symbolTitleRow}>
+                  <Icon.ChevronDown size={14} style={s.chevron(expanded)} />
+                  <span className="mono" style={s.symbolName}>
+                    <Icon.Code size={13} style={s.symbolIcon} />
+                    {d.symbol}()
+                  </span>
+                  <span style={s.symbolCountTag}>{t("blast.callersCount", { count: d.callers.length })}</span>
+                  {impactCount > 0 && (
+                    <span style={s.symbolCountTag}>{t("blast.impactsCount", { count: impactCount })}</span>
+                  )}
+                </button>
+
+                {expanded && (
+                  <>
+                    <div style={s.sectionLabel}>{t("blast.callers")}</div>
+                    {d.callers.length === 0 ? (
+                      <div style={s.empty}>{t("blast.noCallers")}</div>
+                    ) : (
+                      <ul style={s.callerList}>
+                        {d.callers.map((c, i) => (
+                          <li key={`${c.file}:${c.line}:${i}`} style={s.callerLine}>
+                            <Icon.CornerDownRight size={12} style={s.callerIcon} />
+                            <MonoLink onClick={() => onOpenInDiff(c.file, c.line)}>
+                              {c.file}:{c.line}
+                            </MonoLink>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {impactCount > 0 && (
+                      <>
+                        <div style={s.sectionLabel}>{t("blast.endpoints")}</div>
+                        <div style={s.chipRow}>
+                          {d.endpoints_affected.map((e) => (
+                            <Badge key={e} mono>
+                              {e}
+                            </Badge>
+                          ))}
+                          {d.crons_affected.map((c) => (
+                            <Badge key={c} icon="Clock" mono>
+                              {c}
+                            </Badge>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
-
-              <div style={s.sectionLabel}>{t("blast.callers")}</div>
-              {d.callers.length === 0 ? (
-                <div style={s.empty}>{t("blast.noCallers")}</div>
-              ) : (
-                <ul style={s.callerList}>
-                  {d.callers.map((c, i) => (
-                    <li key={`${c.file}:${c.line}:${i}`}>
-                      <MonoLink onClick={() => onOpenInDiff(c.file, c.line)}>
-                        {c.file}:{c.line}
-                      </MonoLink>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {(d.endpoints_affected.length > 0 || d.crons_affected.length > 0) && (
-                <>
-                  <div style={s.sectionLabel}>{t("blast.endpoints")}</div>
-                  <div style={s.chipRow}>
-                    {d.endpoints_affected.map((e) => (
-                      <Badge key={e} mono>
-                        {e}
-                      </Badge>
-                    ))}
-                    {d.crons_affected.map((c) => (
-                      <Badge key={c} icon="Clock" mono>
-                        {c}
-                      </Badge>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div style={s.graphWrap}>
