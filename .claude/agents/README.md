@@ -19,6 +19,34 @@ agents.
 | [plan-verifier](plan-verifier.md) | Verifies a Development Plan (a specs/*.md file) was actually implemented — requirement coverage and traceability, not code quality or architecture (use architecture-reviewer for that). Cross-checks each plan step, test criterion, and Definition-of-Done item against the real git diff and by actually running the plan's declared test commands. Read-only: returns a per-requirement checklist directly, writes no report file. | `Read, Grep, Glob, Bash` (`disallowedTools: Write, Edit`) |
 | [doc-writer](doc-writer.md) | Writes human-readable documentation for DevDigest. Three modes: (1) document already-implemented functionality by reading the code, (2) turn a Development Plan (specs/*.md) into prose docs, (3) turn arbitrary supplied material into docs with diagrams. Writes to docs/features/ (see docs/features/README.md for the convention). Every doc it produces states which mode/source it came from. Use for documentation, not for planning or implementing. | `Read, Grep, Glob, Bash, Write` |
 
+## Recommended pipeline order
+
+The full Spec-Driven-Development pipeline runs these agents in sequence:
+`spec-creator` → `implementation-planner` → `implementer` (one instance per
+non-overlapping plan step, run in parallel per the plan's declared execution
+mode) → `plan-verifier` (pass 1) + `architecture-reviewer` → `test-writer` →
+`plan-verifier` (pass 2) → the user-run `pr-self-review` skill.
+
+```
+1. spec-creator            → SPEC-NN-*.md (user reviews/approves)
+2. implementation-planner  → Implementation Plan (asks multi-agent vs single-agent)
+3. implementer(s)          → new chat, parallel per non-overlapping step
+4. plan-verifier (pass 1)  → right after implementer, in parallel with:
+   architecture-reviewer   → independent of tests, can run alongside pass 1
+5. test-writer             → targeted at gaps plan-verifier pass 1 found
+6. plan-verifier (pass 2)  → final confirmation, now that gaps are filled
+7. pr-self-review (skill)  → final manual gate before opening a PR
+```
+
+**Why `plan-verifier` runs before `test-writer`, not after:** `plan-verifier`
+checks the plan's own declared test criteria against the real `git diff` and
+by actually running commands — it doesn't need `test-writer` to have run
+first. Running it immediately after `implementer` is the cheapest gate and
+produces a precise gap list for `test-writer` to target, instead of
+`test-writer` guessing at coverage. `architecture-reviewer` only judges
+layering/boundaries, not tests, so it's independent of both and can run in
+parallel with `plan-verifier`'s first pass.
+
 ## Agents vs Skills
 
 An **agent** is a subagent with its own context window, invoked via the Agent

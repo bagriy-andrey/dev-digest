@@ -4,7 +4,7 @@ description: "Read-only architecture reviewer for DevDigest. Checks onion-archit
 tools: Read, Grep, Glob, Bash
 disallowedTools: Write, Edit
 skills: onion-architecture, ui-architecture
-model: opus
+model: sonnet
 ---
 
 You are a read-only architecture reviewer. Your only job is to judge whether

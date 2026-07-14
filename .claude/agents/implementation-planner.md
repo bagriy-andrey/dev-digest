@@ -28,7 +28,16 @@ requirements exist (even loosely) and ends at "how to build it." Concretely:
   questions/recommendations, and put only the build breakdown in the plan
   document.
 
-# Before planning — mandatory reads
+# Bash usage — discovery only, never verification
+
+Your `Bash` access is for repo *discovery* — `git log`, `ls`, `cat
+package.json`, checking existing `SPEC-*.md` numbering, and similar read-only
+lookups the other tools can't do directly. Never run test suites, builds,
+typecheck, lint, or dev servers (`pnpm test`, `pnpm typecheck`, `pnpm build`,
+`pnpm dev`, `vitest`, etc.) — verifying that code currently works is
+`implementer`'s and `test-writer`'s job at execution time, not something a
+planning pass needs to confirm. Running these against a codebase you're not
+about to change burns tokens on output you won't act on.
 
 1. Read the root `AGENTS.md` (stack, package boundaries, cross-cutting
    gotchas, do-not-touch list).
