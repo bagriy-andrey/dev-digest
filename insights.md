@@ -80,6 +80,20 @@
   Also check whether the section's underlying facade/data layer (repo-intel, github adapter, etc.)
   is ALSO already built for the same reason — it was, both times.
 
+- **The Planner subagent was renamed `.claude/agents/planner.md` → `.claude/agents/implementation-planner.md`
+  (frontmatter `name: implementation-planner`) and its scope was tightened: it never authors or
+  redefines product requirements/specs, only turns already-defined requirements into a build
+  breakdown.** It still writes to `<module>/specs/*.md` (that path convention didn't change) and
+  still reads existing specs there as the source of truth for WHAT, but the doc it produces is
+  titled `# Implementation Plan: <Feature>`, not `# Spec: <Feature>`. It also now (a) posts
+  requirement gaps/recommendations as chat output, separate from the plan file, and (b) asks the
+  user to choose multi-agent (parallel Implementer dispatch) vs. single-agent (one sequential pass)
+  whenever the step breakdown has ≥2 independent steps, recording the choice as `**Execution
+  mode:**` at the top of the plan. ⇒ Other files that still say "planner"/"planner.md" (`README.md`,
+  `implementer.md`, `plan-verifier.md`, `doc-writer.md`) were deliberately left unchanged (explicit
+  user scope decision) — don't treat their "planner" references or the word "spec" in their prose
+  as contradicting this rename; they're just not yet updated to match.
+
 - **Vendored `@devdigest/shared` has TWO physical copies, not three — and the client UI reads a
   THIRD, non-vendored registry.** `reviewer-core/tsconfig.json` aliases `@devdigest/shared` to
   **the server's** `server/src/vendor/shared` (not its own copy). So editing a contract under
@@ -136,6 +150,26 @@
   `pr_files`/cache staleness — fixing it needs PR-branch-aware symbol resolution (e.g. an
   on-demand extraction pass over the PR's own diff content for files the persisted index doesn't
   know), not just a better resync trigger.
+
+- **`specs/` folders follow a flat, package-scoped convention — NOT a `specs/<module>/`
+  subfolder structure.** Packages that have implementation-plan-style specs own them directly and
+  flatly: `server/specs/*.md`, `e2e/specs/*.md`. The repo-root `specs/*.md` is ALSO flat and
+  reserved only for features that don't belong to any single existing package (e.g.
+  `specs/mcp-server.md`, `specs/pre-push-cli.md`) — it is not a parent directory with per-module
+  subfolders underneath it. `implementation-planner.md` already hard-codes this layout
+  (`<module>/specs/<feature-slug>.md`). ⇒ Any new spec-writing agent/tooling must target this
+  exact layout — a `specs/<module>/` subfolder is a plausible-sounding but wrong guess (this was
+  the initial, incorrect assumption when designing `.claude/agents/spec-creator.md`, caught only
+  by grepping the actual repo before writing the agent).
+
+- **A single `specs/` directory now legitimately mixes two unrelated document types that must
+  never be converted into each other:** older Implementation-Plan-style docs with no numeric
+  prefix (e.g. `server/specs/skills.md`, `smart-diff.md` — file-by-file HOW breakdowns, written/
+  read by `implementation-planner`), and newer `SPEC-NN-<slug>.md` EARS-based feature specs (WHAT/
+  WHY, written by the new `spec-creator` agent, numbered per-directory starting at `SPEC-01`). ⇒ A
+  spec-writing or spec-reading agent must not assume every file in a `specs/` folder follows one
+  shape — check for the `SPEC-` filename prefix before assuming EARS structure, and never rename
+  or rewrite a legacy doc into the new format without being explicitly asked to.
 
 ## Tool & Library Notes
 
@@ -253,3 +287,14 @@
 ## Session Notes
 
 ## Open Questions
+
+- **No agent currently traces a feature Spec's EARS acceptance criteria (`AC-N`) forward to
+  actual test coverage.** `plan-verifier` cross-checks Implementation Plan steps/test-criteria
+  against the git diff, but Implementation Plans don't carry `AC-N` IDs, and nothing maps a
+  `SPEC-NN`'s `AC-N` list to what `implementation-planner`/`implementer` actually built or tested.
+  (Surfaced 2026-07-14 while designing `.claude/agents/spec-creator.md`.)
+
+- **`SPEC-NN` specs have no forward link to the Implementation Plan that realizes them** —
+  `Supersedes` only links a spec backward to an older spec it replaces; nothing links a spec
+  forward to the plan/PR that implements it, so tracing WHAT → HOW currently requires manually
+  finding the matching plan. (Surfaced 2026-07-14 while designing `.claude/agents/spec-creator.md`.)
