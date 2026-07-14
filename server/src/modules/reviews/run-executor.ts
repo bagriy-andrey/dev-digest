@@ -1,13 +1,13 @@
 import type { Container } from '../../platform/container.js';
-import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
-import { reviewPullRequest, countBlockers } from '@devdigest/reviewer-core';
+import type { Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
+import { countBlockers } from '@devdigest/reviewer-core';
 import { RunLogger } from '../../platform/run-logger.js';
 import * as schema from '../../db/schema.js';
 import type { AgentRow } from '../../db/rows.js';
 import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './repository.js';
-import { REVIEW_STRATEGY } from './constants.js';
 import { taskLine } from './helpers.js';
 import { loadDiff } from './diff-loader.js';
+import { runAgentReview } from './agent-runner.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -153,75 +153,19 @@ export class ReviewRunExecutor {
     runLog.info(`Starting review with agent "${agent.name}" (${agent.provider}/${agent.model})`);
 
     try {
-      // Resolve the agent's LLM provider. (container.llm throws if the provider
-      // key is missing — caught below and persisted as a failed run.)
-      const llm = await runLog.step(
-        `Resolving ${agent.provider} provider`,
-        () => this.container.llm(agent.provider as Provider),
-        { kind: 'tool' },
-      );
-
-      // Per-agent repo-intel toggle (Agent editor). When an agent opts out we
-      // skip all enrichment entirely so its prompt is identical to the
-      // repo-intel-off baseline — independent of the global REPO_INTEL_ENABLED
-      // flag, which still gates the facade internally.
-      const repoIntelOn = agent.repoIntel !== false;
-      if (!repoIntelOn) runLog.info('Repo intel disabled for this agent — skipping context enrichment');
-
-      // T1.3 — callers-in-prompt. Best-effort: when repo-intel is off the facade
-      // returns []; we omit the section and behavior is identical to the
-      // pre-T1.3 prompt (acceptance #10).
-      const callersDigest = repoIntelOn
-        ? await this.buildCallersDigest(pull.repoId, diff, runLog)
-        : undefined;
-
-      // T3 — repo skeleton + "changed files are top-5%" framing. Both best-
-      // effort: when repo-intel is off / unindexed the facade degrades and the
-      // prompt is identical to the pre-T3 shape.
-      const repoMap = repoIntelOn ? await this.buildRepoMapDigest(pull.repoId, runLog) : undefined;
-      const rankNote = repoIntelOn ? await this.buildRankNote(pull.repoId, diff, runLog) : '';
-
-      const task = taskLine(pull) + rankNote;
-
-      // Load enabled linked skills for this agent (both per-link AND global flag must be on).
-      const linkedSkills = await this.agents.linkedSkills(agent.id);
-      const enabledSkillBodies = linkedSkills
-        .filter((l) => l.enabled && l.skill.enabled)
-        .map((l) => l.skill.body);
-      runLog.info(
-        `Skills: ${enabledSkillBodies.length} of ${linkedSkills.length} linked skill(s) active`,
-      );
-
       // Intent read-in: READ-ONLY — never computed/recalculated here. The
       // classifier only ever runs via POST /pulls/:id/intent/recalculate.
       const storedIntent = await this.repo.getIntent(pull.id); // undefined when never classified
       if (storedIntent) runLog.info('Intent: injecting stored PR intent/scope into the review prompt');
       else runLog.info('Intent: none stored for this PR — review runs without an intent section');
 
-      // ---- Engine: assemble → single-pass → grounding -----------------------
-      // The pure review pipeline lives in @devdigest/reviewer-core (shared with
-      // the CI runner). The service owns only I/O: repo-intel context resolution
-      // above, and persistence + observability below.
-      const outcome = await reviewPullRequest({
-        systemPrompt: agent.systemPrompt,
-        model: agent.model,
+      const outcome = await runAgentReview(this.container, {
+        repoId: pull.repoId,
         diff,
-        llm,
-        // Per-agent review strategy (configured in the Agent editor); falls back
-        // to the studio default. single-pass = whole diff in one call.
-        strategy: agent.strategy ?? REVIEW_STRATEGY,
-        // Enabled linked skills → injected as "## Skills / rules" block.
-        ...(enabledSkillBodies.length > 0 ? { skills: enabledSkillBodies } : {}),
-        // T1.3 — pass the callers digest only when we built one. assemblePrompt
-        // omits the section when this is empty/undefined.
-        ...(callersDigest ? { callers: callersDigest } : {}),
-        // T3 — repo skeleton, same omit-when-empty contract.
-        ...(repoMap ? { repoMap } : {}),
-        // PR author's description/body — untrusted; assemblePrompt wraps +
-        // truncates it. Omitted when the PR has no body.
+        agent,
+        taskPrefix: taskLine(pull),
+        sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         ...(pull.body ? { prDescription: pull.body } : {}),
-        // Stored PR intent/scope (classifier output) — only when already
-        // computed via the manual Recalculate action; never auto-computed here.
         ...(storedIntent
           ? {
               intent: {
@@ -231,12 +175,11 @@ export class ReviewRunExecutor {
               },
             }
           : {}),
-        task,
-        sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
         checkCancelled: () => {
           if (this.container.runBus.isCancelled(runId)) throw new RunCancelledError();
         },
+        log: runLog,
       });
       const { tokensIn, tokensOut, grounding, costUsd } = outcome;
 
@@ -340,93 +283,6 @@ export class ReviewRunExecutor {
         .catch(() => undefined);
       this.container.runBus.complete(runId);
       throw err;
-    }
-  }
-
-  /**
-   * Build a compact "Callers of changed symbols" digest for the prompt.
-   *
-   * Returns `undefined` when nothing should be added (flag off, no callers
-   * found, or repo-intel errors) — `reviewPullRequest` omits the section in
-   * that case (acceptance #10: flag off → identical prompt).
-   *
-   * Compact format: one bullet per caller, grouped by file. Trimmed (limit 10
-   * rows per `getCallerSignatures` call) so the section stays under ~600
-   * tokens even on heavy PRs.
-   */
-  private async buildCallersDigest(
-    repoId: string,
-    diff: UnifiedDiff,
-    runLog: RunLogger,
-  ): Promise<string | undefined> {
-    const changedFiles = diff.files.map((f) => f.path);
-    if (changedFiles.length === 0) return undefined;
-    let rows;
-    try {
-      rows = await this.container.repoIntel.getCallerSignatures(repoId, changedFiles, 10);
-    } catch (err) {
-      // Never let an enrichment break the run — surface only as a Live Log info.
-      runLog.info(`callers digest: repoIntel failed — ${(err as Error).message}`);
-      return undefined;
-    }
-    if (rows.length === 0) return undefined;
-
-    const byFile = new Map<string, string[]>();
-    for (const r of rows) {
-      const lines = byFile.get(r.file) ?? [];
-      lines.push(`- \`${r.symbol}\` — ${r.signature}`);
-      byFile.set(r.file, lines);
-    }
-    const out: string[] = [];
-    for (const [file, lines] of byFile) {
-      out.push(`### ${file}`);
-      out.push(...lines);
-    }
-    runLog.info(`callers digest: ${rows.length} caller signature(s) attached`);
-    return out.join('\n');
-  }
-
-  /**
-   * T3 — fetch the cached repo skeleton for the prompt's `## Repo skeleton`
-   * slot. Returns `undefined` when repo-intel is off / the repo isn't indexed
-   * (the facade degrades), so the prompt stays identical to the pre-T3 shape.
-   */
-  private async buildRepoMapDigest(
-    repoId: string,
-    runLog: RunLogger,
-  ): Promise<string | undefined> {
-    try {
-      const map = await this.container.repoIntel.getRepoMap(repoId);
-      if (map.degraded || map.text.trim().length === 0) return undefined;
-      runLog.info(`repo map: ${map.tokens} token(s) attached (cached=${map.cached})`);
-      return map.text;
-    } catch (err) {
-      runLog.info(`repo map: repoIntel failed — ${(err as Error).message}`);
-      return undefined;
-    }
-  }
-
-  /**
-   * T3 — a one-line "N of M changed files are in the top 5% most-depended-on"
-   * note appended to the task framing, so the model prioritises hot core files.
-   * Empty string when repo-intel is off / no changed file is hot.
-   */
-  private async buildRankNote(
-    repoId: string,
-    diff: UnifiedDiff,
-    runLog: RunLogger,
-  ): Promise<string> {
-    const changedFiles = diff.files.map((f) => f.path);
-    if (changedFiles.length === 0) return '';
-    try {
-      const ranks = await this.container.repoIntel.getFileRank(repoId, changedFiles);
-      if (ranks.length === 0) return '';
-      const hot = ranks.filter((r) => r.percentile >= 95);
-      if (hot.length === 0) return '';
-      runLog.info(`file rank: ${hot.length}/${changedFiles.length} changed file(s) in top 5%`);
-      return `\n\n${hot.length} of ${changedFiles.length} changed file(s) are in the top 5% most-depended-on (high blast risk) — prioritise their correctness.`;
-    } catch {
-      return '';
     }
   }
 

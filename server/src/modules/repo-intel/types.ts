@@ -81,7 +81,20 @@ export interface BlastResult {
    * endpoints/crons to the changed symbol whose callers live in that file.
    * Present on the persistent (non-degraded) path; absent otherwise.
    */
-  factsByFile?: Record<string, { endpoints: string[]; crons: string[] }>;
+  factsByFile?: Record<
+    string,
+    { endpoints: string[]; crons: string[]; routeSymbols?: Record<string, string[]> }
+  >;
+  /**
+   * Per-changed-symbol endpoints/crons: union of (a) the symbol's direct
+   * hop-1 caller files' own facts and (b) every file that transitively
+   * imports the symbol's declaring file within `BFS_DEPTH` hops (the
+   * `file_edges` reverse-import walk — see `blast-reachability.ts`). Present
+   * on the persistent (non-degraded) path; absent on the ripgrep/degraded
+   * fallback, which stays 1-hop.
+   */
+  endpointsBySymbol?: Record<string, string[]>;
+  cronsBySymbol?: Record<string, string[]>;
   degraded?: boolean;
   reason?: DegradedReason;
 }
@@ -144,7 +157,11 @@ export interface RepoIntel {
   getIndexState(repoId: string): Promise<IndexState>;
 
   // --- Reads --------------------------------------------------------------
-  getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult>;
+  getBlastRadius(
+    repoId: string,
+    changedFiles: string[],
+    patchesByFile?: Record<string, string>,
+  ): Promise<BlastResult>;
   getRepoMap(repoId: string, tokenBudget?: number): Promise<RepoMapResult>;
   getFileRank(repoId: string, paths: string[]): Promise<FileRankRow[]>;
   getSymbolsInFiles(repoId: string, paths: string[]): Promise<SymbolRow[]>;

@@ -39,6 +39,16 @@
 - `@dnd-kit/core` + `@dnd-kit/sortable` (v6/v10) are installed. Cross-list DnD pattern used in `SkillsTab`: left panel items use `useSortable` inside `SortableContext`; right panel items use `useDraggable`; left container uses `useDroppable`. Distinguish source in `onDragEnd` via `active.data.current.type`. Use `arrayMove` from `@dnd-kit/sortable` for reorder. Apply optimistic local state (`pendingOrder`) to avoid list snap-back during in-flight mutations — clear it once the server-derived sort matches. A `Set` built from a `useMemo`-derived array must be rebuilt *inside* a child `useMemo` (not passed as a dep) — a `new Set(...)` reference always changes, causing the child memo to re-run every render. Tab bodies that need full-height two-column layout must opt out of the editor's default `padding: 28 / overflow: auto` by overriding `s.body` styles conditionally in `AgentEditor`.
 - `SeverityBadge` (from `@devdigest/ui`) accepts a `count` prop that renders an inline number alongside the icon — no wrapper or custom chip needed when you want "CRITICAL 3"-style counters.
 
+- **RTL `getByText("exact string")` fails on a line built from multiple sibling `{t(...)}` calls
+  joined by literal `·` separators with no wrapping `<span>` per segment** — e.g. `{t("a")} ·{" "}
+  {t("b")}` inside one `<div>`. Each `{t(...)}` call is its own text node, but since they're all
+  direct children of the same element (no nested elements), that element's own normalized
+  `textContent` IS the full concatenated line — so `getByText` still matches, but only against the
+  **entire** joined string (`"2 symbols · 2 callers · 1 endpoint · 1 cron"`), never a substring
+  segment alone (`getByText("2 symbols")` throws "text is broken up by multiple elements"). Assert
+  on the whole rendered line, not per-segment substrings, unless you wrap each stat in its own
+  element.
+
 ## Recurring Errors & Fixes
 
 - **CSS var hardcoded fallback breaks dark mode**: `var(--token, #hardcoded-light-color)` silently renders the hex fallback in dark mode when `--token` is undefined. Always use another CSS variable as fallback (`var(--token, var(--other-token))`) or omit the fallback and define the token in the theme. Fixed: `var(--accent-subtle, #f0f7ff)` → `var(--accent-bg)` on the selected CandidateCard background.
@@ -55,4 +65,44 @@
 - 2026-06-24: Migrated 8 files from deep relative imports (7 levels) to @/ alias: FindingCard.tsx, FindingsPanel.tsx + test, RunReviewDropdown.tsx + test, SettingsApiKeys.tsx + constants.ts, SettingsModels.tsx. Task 1 of 11 completed; tasks 2-11 remain pending.
 - 2026-07-05: Fixed `FindingCard`'s file:line link — was a `githubBlobUrl` deep-link opening a new GitHub tab; now calls `onOpenInDiff(file, line)` which the PR detail `page.tsx` wires to switch to the Files-changed tab and pass `targetFile/targetLine/targetNonce` down through `DiffTab` → `SmartDiffViewer`/`DiffViewer` → `FileCard` (forces the file open, expands its Smart Diff role section if collapsed, and scrolls to/highlights the line via the existing `lineAnchorId`/`highlightLines` mechanism, falling back to a new `fileCardId` anchor when the line isn't in the rendered patch). Removed the now-dead `githubBlobUrl`/`encPath` from `lib/github-urls.ts` (kept `githubPrUrl`). Verified end-to-end with `agent-browser` (see root insights.md) against real seeded PR #482 data — no new tab opens, URL's `tab` param flips to `diff`, target file card opens and scrolls into view.
 
+- 2026-07-09: Blast Radius client implemented per `server/specs/blast-radius.md`: `lib/hooks/
+  blast.ts` (`usePrBlast`, `useSummarizeBlast`), `BlastRadiusCard` (Overview tab, Tree-only,
+  co-located with `IntentCard`), `BlastTab` + `_components/BlastGraph` (dedicated tab, Tree/Graph
+  toggle — Graph is a hand-rolled fixed-column SVG, no new chart dependency), wired into
+  `page.tsx`/`PrDetailHeader`/`OverviewTab`. Reused the existing `onOpenInDiff(file, line)`
+  click-to-code mechanism unchanged (no new deep-link logic). Confirmed `next/link` (`<Link
+  href="?tab=blast">`) renders and is clickable in RTL/jsdom with zero `next/navigation` mocking
+  needed — only components calling `useRouter`/`useSearchParams` directly require that mock.
+  41/41 client tests pass, `pnpm typecheck` clean.
+
+- 2026-07-09: Closed both Blast Radius gaps recorded above (server `prior_prs` contract/query/
+  service + `computeBlastStats` helper landed in earlier steps; this step wired the UI): stats
+  line (`computeBlastStats(blast)` rendered under `SectionLabel`, before `symbolList`/view blocks
+  in `BlastRadiusCard`/`BlastTab`) and a collapsible "Prior PRs touching these files" section
+  (`Icon.Clock` + `Badge` count + `next/link` `#number title` rows, shown only when
+  `prior_prs.length > 0`, collapsed by default) in both components. `BlastTab` gained a new
+  required `repoId: string` prop (threaded from `page.tsx`). 64/64 client tests pass, `pnpm
+  typecheck` clean. A pre-existing gap was caught and fixed post-integration: `src/lib/
+  blast-stats.test.ts`'s local `blast()` test-data builder was missing the now-required
+  `prior_prs` field (added by the server contract step) — this broke `pnpm typecheck` on that one
+  file after Step 1 landed, undetected until Step 3 ran a fresh typecheck; fixed with one line
+  (`prior_prs: []` in the builder).
+
 ## Open Questions
+
+- **RESOLVED 2026-07-09** — both gaps closed, see the matching Session Notes entry below
+  (`server/specs/blast-radius-gaps.md`). Left below for historical context, not still open.
+- **Blast Radius UI has 2 confirmed gaps vs. the original design mockup** (found 2026-07-09 by
+  comparing live screenshots against the target mockup, verified against actual code — not
+  guessed): (1) no aggregate stats line in the card/tab header (mockup shows "N symbols · N
+  callers · N endpoints · N cron"; neither `BlastRadiusCard.tsx` nor `BlastTab.tsx` renders one,
+  and no i18n key for it exists in `messages/en/prReview.json`'s `blast` block); (2) a "Prior PRs
+  touching these files" collapsible section shown in the mockup is entirely unbuilt — no field on
+  the `BlastRadius` shared contract (`server/src/vendor/shared/contracts/brief.ts`, only
+  `changed_symbols`/`downstream`/`summary`), no server logic, no UI, no i18n key. Separately, the
+  compact `BlastRadiusCard` being Tree-only (no Graph toggle inline, unlike the mockup) is a
+  **deliberate** decision already recorded in this file's 2026-07-09 Session Notes entry, not a
+  gap. ⇒ Before extending Blast Radius, don't assume "no endpoint/cron badges visible in a
+  screenshot" means that feature is missing — `endpoints_affected`/`crons_affected` badges ARE
+  implemented in both `BlastRadiusCard` and `BlastTab`; they just render conditionally and were
+  simply empty (0 impact) on the specific PR captured in that screenshot.

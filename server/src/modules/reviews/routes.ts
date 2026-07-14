@@ -1,15 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { RunRequest } from '@devdigest/shared';
+import { RunRequest, ReviewDiffRequest, ReviewDiffResponse } from '@devdigest/shared';
 import type { RunEvent } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { NotFoundError } from '../../platform/errors.js';
 import { ReviewService } from './service.js';
+import { ReviewDiffService } from './review-diff.js';
 
 /**
  * reviews module.
- *   POST   /pulls/:id/review  {agentId} | {all:true}  → run review(s); returns runs
+ *   POST   /pulls/:id/review     {agentId} | {all:true}  → run review(s); returns runs
+ *   POST   /repos/:id/review-diff {diff}                 → synchronous, unpersisted pre-push review
  *   GET    /runs/:id/events                            → SSE stream of RunEvent (replay-first)
  *   GET    /runs/:id/trace                             → the single-document RunTrace
  *   GET    /pulls/:id/reviews                          → persisted reviews + findings for a PR
@@ -42,6 +44,30 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
     );
     return { pr_id: req.params.id, runs, reviews };
   });
+
+  // ---- Pre-push CLI: synchronous, unpersisted review of a raw diff --------
+  // Same rate limit as /pulls/:id/review — each call can fan out to expensive
+  // LLM runs across every enabled agent.
+  app.post(
+    '/repos/:id/review-diff',
+    {
+      schema: {
+        params: IdParams,
+        body: ReviewDiffRequest,
+        response: { 200: ReviewDiffResponse },
+      },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      const { workspaceId } = await getContext(container, req);
+      return new ReviewDiffService(container).run(
+        workspaceId,
+        req.params.id,
+        req.body.diff,
+        req.log,
+      );
+    },
+  );
 
   // ---- SSE: live run events (replay buffer first, then live; ends on done) -
   // No rate limit: SSE is one long-lived connection, not burst traffic.

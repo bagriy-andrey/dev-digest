@@ -19,6 +19,10 @@
  *
  * It is intentionally conservative about false positives (skips comment lines,
  * import/export-from lines) so the blast graph stays trustworthy.
+ *
+ *   endpoints   — see `extractEndpoints` (Express/Fastify call-style routes) and
+ *                 `extractNestRoutes` (decorator-style routes, e.g. NestJS `@Get()`) — two
+ *                 separate scanners for two separate routing conventions, not one merged pass.
  */
 
 export interface ExtractedSymbol {
@@ -29,6 +33,12 @@ export interface ExtractedSymbol {
 
 export interface ExtractedReference {
   toSymbol: string;
+  line: number;
+}
+
+export interface ExtractedRoute {
+  route: string; // "GET /portfolio/allocation"
+  methodName: string; // bare handler name, matches ExtractedSymbol.name for the same method
   line: number;
 }
 
@@ -70,6 +80,35 @@ const KEYWORDS = new Set([
 const METHOD_RE =
   /^\s*(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+|async\s+|\*\s*)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^={]+)?\{/;
 
+// A decorator-annotated parameter on the SAME line as the method (`list(@Request() request) {`,
+// the standard NestJS handler shape) defeats METHOD_RE's single-level `[^)]*` — it stops at the
+// FIRST `)` it meets (the decorator's own `@Request()`), never reaching the method's real closing
+// paren, so the match silently fails. Strip one level of param-decorator calls before matching so
+// only the method's own parens remain. Shared by `extractSymbols` (below) AND `extractNestRoutes`
+// (further down) — both match against `METHOD_RE` and both need this.
+const PARAM_DECORATOR_RE = /@[A-Za-z_$][\w$]*(?:\([^)]*\))?\s*/g;
+function stripParamDecorators(line: string): string {
+  return line.replace(PARAM_DECORATOR_RE, '');
+}
+
+/**
+ * Resolves a class-body line to the method name it declares, covering both shapes `METHOD_RE`
+ * alone can't: a same-line decorated param (`stripParamDecorators` handles that first) and a
+ * multi-line signature (`METHOD_START_RE`/`findMultilineMethodBodyStart`, defined below — forward
+ * reference is safe, this is only ever called after the module has fully loaded). Shared by
+ * `extractSymbols` and `extractNestRoutes` — both need "what method does this line declare,"
+ * just for different downstream purposes.
+ */
+function matchMethodDeclaration(lines: string[], i: number, strippedLine: string): string | null {
+  const mm = strippedLine.match(METHOD_RE);
+  if (mm?.[1] && !KEYWORDS.has(mm[1])) return mm[1];
+  const startMatch = strippedLine.match(METHOD_START_RE);
+  if (startMatch?.[1] && !KEYWORDS.has(startMatch[1]) && findMultilineMethodBodyStart(lines, i) !== null) {
+    return startMatch[1];
+  }
+  return null;
+}
+
 /**
  * Extract declared symbols from a single file's source.
  * Tracks a shallow `class` context so methods are reported as `<Class>.<method>`
@@ -104,12 +143,15 @@ export function extractSymbols(content: string): ExtractedSymbol[] {
       }
     }
 
-    // Methods inside a class body (only when we're one level into the class).
+    // Methods inside a class body (only when we're one level into the class). Decorator-
+    // annotated params (`stripParamDecorators`) and multi-line signatures
+    // (`findMultilineMethodBodyStart`) are both real, common NestJS shapes — see their doc
+    // comments below; a plain `line.match(METHOD_RE)` misses both.
     if (!matchedDecl && currentClass && braceDepth === classDepth + 1) {
-      const mm = line.match(METHOD_RE);
-      if (mm?.[1] && !KEYWORDS.has(mm[1])) {
-        out.push({ name: `${currentClass}.${mm[1]}`, kind: 'method', line: i + 1 });
-        out.push({ name: mm[1], kind: 'method', line: i + 1 });
+      const methodName = matchMethodDeclaration(lines, i, stripParamDecorators(line));
+      if (methodName) {
+        out.push({ name: `${currentClass}.${methodName}`, kind: 'method', line: i + 1 });
+        out.push({ name: methodName, kind: 'method', line: i + 1 });
       }
     }
 
@@ -194,6 +236,145 @@ export function extractEndpoints(content: string): string[] {
   return [...out];
 }
 
+const CLASS_DECL_RE = SYMBOL_PATTERNS.find((p) => p.kind === 'class')!.re;
+const CONTROLLER_DECORATOR_RE = /@Controller\s*\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/;
+// @All is intentionally not matched — same "no catch-all verb" stance extractEndpoints takes.
+const ROUTE_VERB_DECORATOR_RE = /@(Get|Post|Put|Patch|Delete)\s*\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/;
+const DECORATOR_LINE_RE = /^\s*@\w+/;
+const BLANK_RE = /^\s*$/;
+// Bounded backward scan for the decorator run immediately above a method — NestJS stacks
+// decorators (`@UseGuards(...)` above `@Get(...)` above the method), so we walk up over
+// consecutive decorator/blank/comment lines until real content or the cap is hit.
+const MAX_DECORATOR_LOOKBACK = 10;
+
+function joinRoutePath(prefix: string, sub: string): string {
+  const p = prefix.replace(/^\/+|\/+$/g, '');
+  const s = sub.replace(/^\/+|\/+$/g, '');
+  return `/${[p, s].filter(Boolean).join('/')}`;
+}
+
+// `sanitizeLine` blanks string-literal CONTENTS (`'portfolio'` → `""`) — right for structural
+// matching (METHOD_RE/CLASS_DECL_RE don't care what's inside a string) but wrong here: the
+// decorator's literal path argument IS the value we need. Strip only trailing `//` comments,
+// keep the actual string contents intact.
+function stripLineComment(line: string): string {
+  return line.replace(/\/\/.*$/, '');
+}
+
+// Name immediately followed by `(`, WITHOUT requiring the rest of the signature (params/return
+// type/body brace) on the same line — a looser opener than METHOD_RE, used only to detect where
+// a multi-line signature (see below) begins.
+const METHOD_START_RE =
+  /^\s*(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+|async\s+|\*\s*)*([A-Za-z_$][\w$]*)\s*\(/;
+const MAX_SIGNATURE_LOOKAHEAD = 20;
+
+// Real NestJS handlers routinely put ONE decorated param per line for readability
+// (`@Request() request: X,` / `@Query() query: Y,` each on their own line) — METHOD_RE requires
+// the ENTIRE `name(...) {` on one line, so it never matches these at all (not a decorator-parens
+// issue like `stripParamDecorators` fixes — the name and the body-opening `{` are simply on
+// different lines). Bounded forward scan from a line that STARTS a method (`METHOD_START_RE`)
+// but doesn't close it there: track paren balance across subsequent lines until it returns to 0,
+// then confirm a `{` follows before anything else (a real body, not a signature-only
+// interface/abstract declaration). Returns the line index the body opens on, or null.
+function findMultilineMethodBodyStart(lines: string[], startIdx: number): number | null {
+  let parenDepth = 0;
+  let seenOpenParen = false;
+  for (let k = startIdx; k < lines.length && k < startIdx + MAX_SIGNATURE_LOOKAHEAD; k += 1) {
+    const s = sanitizeLine(lines[k]!);
+    for (const ch of s) {
+      if (ch === '(') {
+        parenDepth += 1;
+        seenOpenParen = true;
+      } else if (ch === ')') {
+        parenDepth -= 1;
+      }
+    }
+    if (seenOpenParen && parenDepth <= 0) {
+      const afterParens = s.slice(s.lastIndexOf(')') + 1);
+      return /^\s*(?::[^={]+)?\{/.test(afterParens) ? k : null;
+    }
+  }
+  return null;
+}
+
+function findPrecedingRouteDecorator(
+  lines: string[],
+  methodLineIdx: number,
+): { verb: string; path: string } | null {
+  let scanned = 0;
+  for (let j = methodLineIdx - 1; j >= 0 && scanned < MAX_DECORATOR_LOOKBACK; j -= 1, scanned += 1) {
+    const raw = lines[j]!;
+    if (LINE_COMMENT.test(raw) || BLANK_RE.test(raw)) continue;
+    const line = stripLineComment(raw);
+    const m = line.match(ROUTE_VERB_DECORATOR_RE);
+    if (m) return { verb: m[1]!.toUpperCase(), path: m[2] ?? '' };
+    if (DECORATOR_LINE_RE.test(line)) continue;
+    break; // real (non-decorator) content — the decorator run above the method ends here
+  }
+  return null;
+}
+
+/**
+ * Decorator-aware NestJS route detector — `extractEndpoints` above only recognizes
+ * `verb.method('/path', ...)` CALLS (this project's own Fastify convention) and is
+ * structurally blind to `@Controller()`/`@Get()`-style decorator routing, which has no such
+ * call anywhere in the file. Kept as a separate function (not merged into `extractEndpoints`)
+ * so each stays a single readable regex pass scoped to one routing convention.
+ *
+ * Tracks `@Controller(prefix)` class scope the same way `extractSymbols` tracks `currentClass`
+ * (brace-depth based), then for each method inside that scope looks backward over its
+ * decorator run for an HTTP-verb decorator. Multi-line decorator argument lists are not
+ * matched (single-line only, same precision tradeoff as the rest of this module).
+ */
+export function extractNestRoutes(content: string): ExtractedRoute[] {
+  const out: ExtractedRoute[] = [];
+  const lines = content.split('\n');
+  let braceDepth = 0;
+  let controllerDepth: number | null = null;
+  let controllerPrefix = '';
+  let pendingControllerPrefix: string | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]!;
+    if (LINE_COMMENT.test(raw)) {
+      braceDepth += countBraces(raw);
+      continue;
+    }
+    const line = sanitizeLine(raw);
+
+    const ctrlMatch = stripLineComment(raw).match(CONTROLLER_DECORATOR_RE);
+    if (ctrlMatch) pendingControllerPrefix = ctrlMatch[1] ?? '';
+
+    const classMatch = line.match(CLASS_DECL_RE);
+    if (classMatch && pendingControllerPrefix !== null) {
+      controllerPrefix = pendingControllerPrefix;
+      controllerDepth = braceDepth;
+      pendingControllerPrefix = null;
+    }
+
+    if (controllerDepth !== null && braceDepth === controllerDepth + 1) {
+      const methodName = matchMethodDeclaration(lines, i, stripParamDecorators(line));
+      if (methodName) {
+        const decorator = findPrecedingRouteDecorator(lines, i);
+        if (decorator) {
+          out.push({
+            route: `${decorator.verb} ${joinRoutePath(controllerPrefix, decorator.path)}`,
+            methodName,
+            line: i + 1,
+          });
+        }
+      }
+    }
+
+    braceDepth += countBraces(line);
+    if (controllerDepth !== null && braceDepth <= controllerDepth) {
+      controllerDepth = null;
+      controllerPrefix = '';
+    }
+  }
+  return out;
+}
+
 /**
  * Heuristic cron/scheduled-job detector. Catches cron expressions in
  * `schedule('* * * * *')`, `cron.schedule(...)`, `CronJob(...)`, and
@@ -211,4 +392,40 @@ export function extractCrons(content: string): string[] {
     if (j && /poll|index|clone|digest|cron|sync|schedule|job/i.test(raw)) out.add(`job:${j[1]}`);
   }
   return [...out];
+}
+
+/**
+ * True iff `patch` is GitHub's unified-diff hunk for a brand-new file — a single hunk whose old
+ * side has zero lines (`@@ -0,0 +1,N @@`), meaning the file didn't exist before this diff. Used
+ * to decide whether `reconstructAddedFileContent` can safely treat the patch as the WHOLE file
+ * rather than a partial modification hunk.
+ */
+export function isAddedFilePatch(patch: string): boolean {
+  const hunkHeaders = patch.split('\n').filter((l) => l.startsWith('@@'));
+  if (hunkHeaders.length !== 1) return false;
+  return /^@@ -0,0 \+\d+(?:,\d+)? @@/.test(hunkHeaders[0]!);
+}
+
+/**
+ * Reconstructs a brand-new file's full content from its GitHub unified-diff patch — every line in
+ * an added-file patch is an addition (`+`), so stripping the leading `+` (and the `@@ ... @@`
+ * header / `\ No newline at end of file` marker) recovers the exact source text, no base content
+ * needed. Returns null (never guesses) when `patch` isn't a clean single-hunk added-file patch, or
+ * contains a context/removal line that shouldn't exist in one (GitHub anomaly / truncation).
+ */
+export function reconstructAddedFileContent(patch: string): string | null {
+  if (!isAddedFilePatch(patch)) return null;
+  const out: string[] = [];
+  let inHunk = false;
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('@@')) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith('\\ No newline at end of file')) continue;
+    if (!line.startsWith('+')) return null;
+    out.push(line.slice(1));
+  }
+  return out.join('\n');
 }

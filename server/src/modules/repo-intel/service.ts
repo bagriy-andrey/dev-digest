@@ -19,7 +19,16 @@
  */
 import type { CodeSymbol, RepoRef } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
-import { extractEndpoints } from '../../adapters/codeindex/extract.js';
+import {
+  extractEndpoints,
+  extractNestRoutes,
+  extractCrons,
+  extractSymbols,
+  extractReferences,
+  isAddedFilePatch,
+  reconstructAddedFileContent,
+} from '../../adapters/codeindex/extract.js';
+import { applyUnifiedPatch } from '../../adapters/codeindex/patch-apply.js';
 import {
   parseImports,
   parseInvocationHeads,
@@ -29,6 +38,7 @@ import {
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { RepoIntelRepository, type FullSymbolRow } from './repository.js';
+import { reverseReachableFiles } from './blast-reachability.js';
 import type {
   BlastCallerRow,
   BlastChangedSymbol,
@@ -48,6 +58,7 @@ import {
   INDEX_JOB_KIND,
   INDEXER_VERSION,
   MAX_CALLERS_PER_SYMBOL,
+  MAX_REACHABLE_FILES,
   REFRESH_JOB_KIND,
   RESYNC_JOB_KIND,
   SUPPORTED_EXT,
@@ -217,11 +228,22 @@ export class RepoIntelService implements RepoIntel {
    * every caller gets `rank: 0` and HTTP impact is detected by re-reading the
    * clone (not the index). T2 promotes this path to the persistent layer.
    */
-  async getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult> {
+  async getBlastRadius(
+    repoId: string,
+    changedFiles: string[],
+    /**
+     * Optional path -> raw GitHub patch text hint, for files the persisted index has no data
+     * for (e.g. a brand-new file added only on an open PR's own branch, never merged — see
+     * `server/specs/blast-radius-pr-branch-symbols.md`). PR-agnostic: repo-intel never imports
+     * `pr_files`/PR types; the caller (`blast/service.ts`) is the one that knows about PRs and
+     * builds this map from `prFiles.patch`.
+     */
+    patchesByFile?: Record<string, string>,
+  ): Promise<BlastResult> {
     // T3: serve from the persistent index when it's built. Falls through to the
     // ripgrep best-effort below when the flag is off / index is absent.
     if (this.container.config.repoIntelEnabled && changedFiles.length > 0) {
-      const persistent = await this.tryPersistentBlast(repoId, changedFiles);
+      const persistent = await this.tryPersistentBlast(repoId, changedFiles, patchesByFile);
       if (persistent) return persistent;
     }
 
@@ -315,6 +337,7 @@ export class RepoIntelService implements RepoIntel {
   private async tryPersistentBlast(
     repoId: string,
     changedFiles: string[],
+    patchesByFile?: Record<string, string>,
   ): Promise<BlastResult | null> {
     const state = await this.repo.tryGetIndexState(repoId);
     if (!state || (state.status !== 'full' && state.status !== 'partial')) return null;
@@ -325,7 +348,9 @@ export class RepoIntelService implements RepoIntel {
     const changedSymbols: BlastChangedSymbol[] = [];
     const nameSet = new Set<string>();
     const seenSym = new Set<string>();
+    const filesWithDecls = new Set<string>();
     for (const s of declRows) {
+      filesWithDecls.add(s.path);
       if (s.name.includes('.')) continue;
       const key = `${s.name}:${s.path}`;
       if (!seenSym.has(key)) {
@@ -334,11 +359,52 @@ export class RepoIntelService implements RepoIntel {
       }
       nameSet.add(s.name);
     }
+
+    // PR-branch-only Phase 1 (server/specs/blast-radius-pr-branch-symbols.md §2): a file this PR
+    // ADDS (never merged, so never cloned/indexed) has ZERO rows above — the persisted index has
+    // nothing to say about it. If the caller supplied that file's raw GitHub patch and it's a
+    // clean single-hunk added-file patch, reconstruct the whole file (no base content needed —
+    // every line in an added-file patch IS the file) and run the exact same extractors the real
+    // indexer runs per file, merging the result in as if it had been indexed. Ephemeral — never
+    // persisted to `symbols`/`file_facts` (ties to `BlastService.get()`'s own "never persists
+    // anything, recomputed live" contract; persisting PR-branch-only content into repo-scoped
+    // tables would corrupt them across multiple concurrently-open PRs touching the same path).
+    const ephemeralFactsByFile: Record<
+      string,
+      { endpoints: string[]; crons: string[]; routeSymbols: Record<string, string[]> }
+    > = {};
+    for (const f of changedFiles) {
+      if (filesWithDecls.has(f)) continue; // already covered by the persisted index
+      const patch = patchesByFile?.[f];
+      if (!patch) continue;
+      const content = reconstructAddedFileContent(patch);
+      if (content == null) continue;
+
+      for (const s of extractSymbols(content)) {
+        if (s.name.includes('.')) continue;
+        const key = `${s.name}:${f}`;
+        if (!seenSym.has(key)) {
+          seenSym.add(key);
+          changedSymbols.push({ file: f, name: s.name, kind: s.kind });
+        }
+        nameSet.add(s.name);
+      }
+
+      const nestRoutes = extractNestRoutes(content);
+      const routeSymbols: Record<string, string[]> = {};
+      for (const r of nestRoutes) (routeSymbols[r.methodName] ??= []).push(r.route);
+      ephemeralFactsByFile[f] = {
+        endpoints: [...extractEndpoints(content), ...nestRoutes.map((r) => r.route)],
+        crons: extractCrons(content),
+        routeSymbols,
+      };
+    }
+
     if (nameSet.size === 0) {
       return { changedSymbols, callers: [], impactedEndpoints: [], degraded: false };
     }
 
-    // Resolved cross-file callers.
+    // Resolved cross-file callers (hop 1, direct — unchanged).
     const callerRows = await this.repo.getResolvedCallers(repoId, changedFiles, [...nameSet]);
     const callerFiles = [...new Set(callerRows.map((c) => c.fromPath))];
 
@@ -369,23 +435,171 @@ export class RepoIntelService implements RepoIntel {
         rank: c.rank,
       });
     }
+
+    // PR-branch-only Phase 2 (server/specs/blast-radius-pr-branch-symbols.md §2): a MODIFIED file
+    // (patch is NOT added-file-shaped — `isAddedFilePatch` is the discriminator, not
+    // `filesWithDecls`: a file can have zero persisted symbol rows for reasons OTHER than "brand
+    // new," e.g. the indexer's ast-grep pass returning nothing for it — confirmed on a real repo
+    // where EVERY `*.controller.ts` has zero `symbols` rows despite being real, long-merged files;
+    // see server/insights.md. Gating on `filesWithDecls` there would silently skip Phase 2 for
+    // exactly those files) can still be the ONLY place a new call site exists, when the call was
+    // added within this same PR's own diff (e.g. a controller that newly imports+calls a symbol
+    // added by Phase 1 above). The persisted `references` table reflects `main`, which never had
+    // that call, so `getResolvedCallers` above can't find it. Reconstruct each such file's real
+    // PR-branch content by applying its patch to the currently-indexed (base) content, then
+    // re-scan for references to every symbol in `nameSet` — same ephemeral,
+    // ties-to-nothing-persisted philosophy as Phase 1.
+    const phase2Candidates = changedFiles.filter(
+      (f) => patchesByFile?.[f] && !isAddedFilePatch(patchesByFile[f]!),
+    );
+    if (phase2Candidates.length > 0) {
+      const existingHop1 = new Set(callerRows.map((c) => `${c.fromPath}|${c.toSymbol}`));
+      const repo = await this.repo.getRepoBasics(repoId);
+      if (repo) {
+        const ref: RepoRef = { owner: repo.owner, name: repo.name };
+        const symbolFileByName = new Map<string, string>();
+        for (const s of changedSymbols) symbolFileByName.set(s.name, s.file);
+
+        for (const f of phase2Candidates) {
+          let baseContent: string;
+          try {
+            baseContent = await this.container.git.readFile(ref, f);
+          } catch {
+            continue; // file unreadable in the current clone — skip, don't guess
+          }
+          const reconstructed = applyUnifiedPatch(baseContent, patchesByFile![f]!);
+          if (reconstructed == null) continue; // base has diverged from the patch — degrade
+
+          const fileSymbols = extractSymbols(reconstructed);
+          for (const symbolName of nameSet) {
+            if (symbolFileByName.get(symbolName) === f) continue; // skip the decl's own file
+            if (existingHop1.has(`${f}|${symbolName}`)) continue; // already known — no duplicate
+            // Every reference gets its OWN enclosing-symbol lookup (by its own line), not just
+            // the first — a file can call the same symbol from several different methods (e.g.
+            // multiple controller handlers each calling a new shared auth helper), and each is a
+            // distinct real caller, not a single representative one.
+            for (const r of extractReferences(reconstructed, symbolName)) {
+              const enclosing =
+                fileSymbols
+                  .filter((s) => !s.name.includes('.') && s.line <= r.line)
+                  .sort((a, b) => b.line - a.line)[0]?.name ??
+                f.split('/').pop() ??
+                f;
+              const key = `${f}|${enclosing}|${symbolName}`;
+              if (seenCaller.has(key)) continue;
+              seenCaller.add(key);
+              callers.push({ file: f, symbol: enclosing, viaSymbol: symbolName, line: r.line, rank: 0 });
+            }
+          }
+        }
+      }
+    }
+
     callers.sort((a, b) => b.rank - a.rank);
 
-    // Precomputed facts per caller file (endpoints + crons), so consumers can
-    // attribute them to the changed symbol whose callers live in that file.
-    const facts = await this.repo.getFileFacts(repoId, callerFiles);
-    const endpoints = new Set<string>();
-    const factsByFile: Record<string, { endpoints: string[]; crons: string[] }> = {};
+    // Cap fan-out PER changed symbol — `MAX_CALLERS_PER_SYMBOL` is documented
+    // (constants.ts) as "caller fan-out cap per changed symbol", not a global
+    // cap. Group by `viaSymbol`, keep the top-ranked N per group (the list is
+    // already rank-sorted above), flatten back in rank order.
+    const cappedCallers: BlastCallerRow[] = [];
+    const countBySymbol = new Map<string, number>();
+    for (const c of callers) {
+      const n = countBySymbol.get(c.viaSymbol) ?? 0;
+      if (n >= MAX_CALLERS_PER_SYMBOL) continue;
+      countBySymbol.set(c.viaSymbol, n + 1);
+      cappedCallers.push(c);
+    }
+
+    // Hop 2 — reverse-import reachability seeded at the changed files (the
+    // `fileEdges` schema comment: "the reverse-lookup index is what blast
+    // uses to walk 'who depends on this file?'"). File-scoped: every symbol
+    // declared in the same changed file shares that file's reachable set.
+    const edges = await this.repo.getEdges(repoId);
+    const reachableByChangedFile = reverseReachableFiles(
+      edges,
+      changedFiles,
+      BFS_DEPTH,
+      MAX_REACHABLE_FILES,
+    );
+    const allReachableFiles = new Set<string>();
+    for (const set of reachableByChangedFile.values()) {
+      for (const f of set) allReachableFiles.add(f);
+    }
+
+    // Precomputed facts (endpoints + crons) for every file either hop needs:
+    // direct callers (hop 1, including Phase 2's ephemeral callers) UNION
+    // reverse-import reachable files (hop 2) — one round-trip, not N.
+    const factFiles = new Set<string>([...callerFiles, ...allReachableFiles, ...phase2Candidates]);
+    const facts = await this.repo.getFileFacts(repoId, [...factFiles]);
+    const factsByFile: Record<
+      string,
+      { endpoints: string[]; crons: string[]; routeSymbols?: Record<string, string[]> }
+    > = {};
     for (const f of facts) {
-      factsByFile[f.filePath] = { endpoints: f.endpoints, crons: f.crons };
-      for (const e of f.endpoints) endpoints.add(e);
+      factsByFile[f.filePath] = { endpoints: f.endpoints, crons: f.crons, routeSymbols: f.routeSymbols };
+    }
+    // Phase 1's ephemeral facts (added files the persisted index has no row for at all) — never
+    // overrides a persisted entry (there won't be one for these paths, but keep the precedence
+    // explicit and safe with `??=`).
+    for (const [path, f] of Object.entries(ephemeralFactsByFile)) {
+      factsByFile[path] ??= f;
+    }
+
+    // Attribute endpoints/crons per changed symbol: union of (a) its own
+    // direct hop-1 caller files' facts, and (b) every file that transitively
+    // imports the symbol's declaring file within BFS_DEPTH hops (hop 2). The
+    // visible `callers[]` array stays hop-1-only — hop 2 only extends this
+    // attribution, it never becomes a "caller" in the UI sense.
+    //
+    // Hop-1 is METHOD-scoped where the data allows it: a caller's own file may
+    // declare several unrelated decorator-routed handlers (e.g. a NestJS
+    // controller), and only the ONE method that actually calls the changed
+    // symbol should get credit — `routeSymbols[c.symbol]` (keyed by the
+    // caller's enclosing method name, already resolved on `BlastCallerRow`)
+    // gives that precision. Falls back to the file's flat `endpoints` when the
+    // caller isn't itself a decorated handler (e.g. a plain service method one
+    // hop below the controller) — most hop-1 callers of a shared util ARE
+    // service methods, not the (undecorated) controller method that eventually
+    // reaches it, so this fallback is the common path, not a rare corner.
+    // Hop-2 (reverse-import reachability) has no caller-symbol data at all —
+    // it stays file-scoped by design (see server/specs/blast-radius-nestjs-
+    // endpoints.md §6 for why symbol-level hop-2 attribution is out of scope).
+    const endpointsBySymbol: Record<string, string[]> = {};
+    const cronsBySymbol: Record<string, string[]> = {};
+    const endpoints = new Set<string>();
+    for (const sym of changedSymbols) {
+      const eps = new Set<string>();
+      const crons = new Set<string>();
+      for (const c of cappedCallers) {
+        if (c.viaSymbol !== sym.name) continue;
+        const f = factsByFile[c.file];
+        if (!f) continue;
+        const owned = f.routeSymbols?.[c.symbol];
+        if (owned && owned.length > 0) {
+          for (const e of owned) eps.add(e);
+        } else {
+          for (const e of f.endpoints) eps.add(e);
+        }
+        for (const cr of f.crons) crons.add(cr);
+      }
+      for (const reachableFile of reachableByChangedFile.get(sym.file) ?? []) {
+        const f = factsByFile[reachableFile];
+        if (!f) continue;
+        for (const e of f.endpoints) eps.add(e);
+        for (const cr of f.crons) crons.add(cr);
+      }
+      endpointsBySymbol[sym.name] = [...eps].sort();
+      cronsBySymbol[sym.name] = [...crons].sort();
+      for (const e of eps) endpoints.add(e);
     }
 
     return {
       changedSymbols,
-      callers: callers.slice(0, MAX_CALLERS_PER_SYMBOL),
-      impactedEndpoints: [...endpoints],
+      callers: cappedCallers,
+      impactedEndpoints: [...endpoints].sort(),
       factsByFile,
+      endpointsBySymbol,
+      cronsBySymbol,
       degraded: false,
     };
   }

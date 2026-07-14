@@ -121,5 +121,32 @@
     "modelHint": "Overrides the global default in Settings → Models for this repository only.",
     "modelSearch": "Search models…",
     "usingDefault": "using workspace default"
+  },
+  "blast": {
+    "label": "Blast Radius",
+    "loading": "Loading blast radius…",
+    "empty": "No blast radius data — this PR doesn't change any indexed symbols.",
+    "degradedBadge": "Partial index — results may be incomplete ({reason})",
+    "seeFullMap": "See full map →",
+    "callersCount": "{count} {count, plural, one {caller} other {callers}}",
+    "impactsCount": "{count} {count, plural, one {impact} other {impacts}}",
+    "noCallers": "No callers found.",
+    "tree": "Tree",
+    "graph": "Graph",
+    "callers": "Callers",
+    "endpoints": "Endpoints",
+    "crons": "Scheduled jobs",
+    "changedSymbols": "Changed symbols",
+    "summarize": "Summarize",
+    "summarizing": "Summarizing…",
+    "summarizeError": "Couldn't summarize the blast radius — try again.",
+    "statsSymbols": "{count} {count, plural, one {symbol} other {symbols}}",
+    "statsCallers": "{count} {count, plural, one {caller} other {callers}}",
+    "statsEndpoints": "{count} {count, plural, one {endpoint} other {endpoints}}",
+    "statsCrons": "{count} {count, plural, one {cron} other {crons}}",
+    "priorPrs": "Prior PRs touching these files",
+    "showMoreCallers": "+{count} more · See full map",
+    "showMoreEndpoints": "+{count} more",
+    "graphMoreCallers": "+{count} more…"
   }
 }

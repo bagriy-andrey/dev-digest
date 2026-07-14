@@ -1,0 +1,1 @@
+ALTER TABLE "file_facts" ADD COLUMN "route_symbols" jsonb DEFAULT '{}'::jsonb NOT NULL;

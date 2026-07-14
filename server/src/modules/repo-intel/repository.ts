@@ -95,11 +95,13 @@ export interface IndexerFileRankRow {
   percentile: number;
 }
 
-/** Precomputed per-file facts (endpoints/crons) the indexer writes for blast. */
+/** Precomputed per-file facts (endpoints/crons/route_symbols) the indexer writes for blast. */
 export interface IndexerFileFactsRow {
   filePath: string;
   endpoints: string[];
   crons: string[];
+  /** methodName -> routes that method's decorator(s) declare (NestJS-style handlers only). */
+  routeSymbols?: Record<string, string[]>;
 }
 
 /** Candidate row for the repo-map renderer (symbols × file_rank). */
@@ -367,16 +369,19 @@ export class RepoIntelRepository {
     }
   }
 
-  /** Replace per-file facts; only rows with at least one endpoint/cron persist. */
+  /** Replace per-file facts; only rows with at least one endpoint/cron/route persist. */
   async replaceFileFacts(repoId: string, rows: IndexerFileFactsRow[]): Promise<void> {
     await this.db.delete(t.fileFacts).where(eq(t.fileFacts.repoId, repoId));
-    const nonEmpty = rows.filter((r) => r.endpoints.length > 0 || r.crons.length > 0);
+    const nonEmpty = rows.filter(
+      (r) => r.endpoints.length > 0 || r.crons.length > 0 || Object.keys(r.routeSymbols ?? {}).length > 0,
+    );
     if (nonEmpty.length === 0) return;
     const values = nonEmpty.map((r) => ({
       repoId,
       filePath: r.filePath,
       endpoints: r.endpoints,
       crons: r.crons,
+      routeSymbols: r.routeSymbols ?? {},
     }));
     for (let i = 0; i < values.length; i += INSERT_CHUNK_SIZE) {
       await this.db.insert(t.fileFacts).values(values.slice(i, i + INSERT_CHUNK_SIZE));
@@ -530,7 +535,7 @@ export class RepoIntelRepository {
       );
   }
 
-  /** Per-file facts (endpoints/crons) for the given files. */
+  /** Per-file facts (endpoints/crons/route_symbols) for the given files. */
   async getFileFacts(repoId: string, files: string[]): Promise<IndexerFileFactsRow[]> {
     if (files.length === 0) return [];
     const rows = await this.db
@@ -538,6 +543,7 @@ export class RepoIntelRepository {
         filePath: t.fileFacts.filePath,
         endpoints: t.fileFacts.endpoints,
         crons: t.fileFacts.crons,
+        routeSymbols: t.fileFacts.routeSymbols,
       })
       .from(t.fileFacts)
       .where(and(eq(t.fileFacts.repoId, repoId), inArray(t.fileFacts.filePath, files)));
@@ -545,6 +551,7 @@ export class RepoIntelRepository {
       filePath: r.filePath,
       endpoints: (r.endpoints as string[]) ?? [],
       crons: (r.crons as string[]) ?? [],
+      routeSymbols: (r.routeSymbols as Record<string, string[]>) ?? {},
     }));
   }
 
@@ -603,13 +610,16 @@ export class RepoIntelRepository {
         .delete(t.fileFacts)
         .where(and(eq(t.fileFacts.repoId, repoId), inArray(t.fileFacts.filePath, files)));
     }
-    const nonEmpty = rows.filter((r) => r.endpoints.length > 0 || r.crons.length > 0);
+    const nonEmpty = rows.filter(
+      (r) => r.endpoints.length > 0 || r.crons.length > 0 || Object.keys(r.routeSymbols ?? {}).length > 0,
+    );
     if (nonEmpty.length === 0) return;
     const values = nonEmpty.map((r) => ({
       repoId,
       filePath: r.filePath,
       endpoints: r.endpoints,
       crons: r.crons,
+      routeSymbols: r.routeSymbols ?? {},
     }));
     for (let i = 0; i < values.length; i += INSERT_CHUNK_SIZE) {
       await this.db.insert(t.fileFacts).values(values.slice(i, i + INSERT_CHUNK_SIZE));
