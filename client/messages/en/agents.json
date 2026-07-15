@@ -46,6 +46,7 @@
     "tabs": {
       "config": "Config",
       "skills": "Skills",
+      "context": "Context",
       "evals": "Evals",
       "stats": "Stats",
       "ci": "CI"
@@ -98,5 +99,21 @@
   },
   "mount": {
     "body": "Mount point for {owner}. The Agent Editor shell + tab routing are wired by A2 — {owner} renders this tab."
+  },
+  "context": {
+    "title": "Project Context",
+    "attachedCount": "{attached} of {total} attached",
+    "noDocs": "No documents discovered in the active repo yet. Add markdown under specs/, docs/, or insights/ and re-index from the Project Context page.",
+    "noActiveRepo": "Select a repo to attach project context documents.",
+    "dragHandle": "Reorder {name}",
+    "previewLabel": "Preview {name}",
+    "previewError": "Couldn’t load this document",
+    "tokenEstimate": "~{count} tokens (attached docs)",
+    "injectedNote": "Injected as an untrusted block (## Project context) into every run.",
+    "sourceType": {
+      "specs": "Specs",
+      "docs": "Docs",
+      "insights": "Insights"
+    }
   }
 }
