@@ -275,11 +275,18 @@ export const PrCommentInput = z.object({
 export type PrCommentInput = z.infer<typeof PrCommentInput>;
 
 // ---- Project Context ----
+/** Folder a discovered doc was found under; drives the source-type badge. */
+export const ContextSourceType = z.enum(['specs', 'docs', 'insights']);
+export type ContextSourceType = z.infer<typeof ContextSourceType>;
+
 export const SpecFile = z.object({
   path: z.string(),
   content: z.string().nullish(),
   size: z.number().int().nullish(),
   updated_at: z.string().nullish(),
+  /** Which of specs/docs/insights this doc was discovered under; nullish so
+      pre-existing SpecFile literals (predating this field) still validate. */
+  source_type: ContextSourceType.nullish(),
 });
 export type SpecFile = z.infer<typeof SpecFile>;
 
@@ -290,6 +297,43 @@ export const IndexStatus = z.object({
   chunks_indexed: z.number().int().nullish(),
 });
 export type IndexStatus = z.infer<typeof IndexStatus>;
+
+/** Enriched Project Context page/tab row: one discovered doc + its metrics. */
+export const ContextDoc = z.object({
+  path: z.string(),
+  source_type: ContextSourceType,
+  /** Byte size of the file. */
+  size: z.number().int(),
+  /** Count of ATX (`#`…) markdown heading lines — the deterministic "chunks" proxy. */
+  headings: z.number().int(),
+  /** Number of workspace agents whose effective attached-doc set includes this doc. */
+  used_by: z.number().int(),
+  /** round(used_by / total workspace agents * 100); 0 when there are no agents. */
+  coverage: z.number().int().min(0).max(100),
+});
+export type ContextDoc = z.infer<typeof ContextDoc>;
+
+/** Deterministic reindex response — NOT the embedding-flavored IndexStatus. */
+export const ContextIndexStatus = z.object({
+  files: z.number().int(),
+  chunks: z.number().int(),
+  scanned_at: z.string(),
+});
+export type ContextIndexStatus = z.infer<typeof ContextIndexStatus>;
+
+/** One row of an agent's or skill's attached-doc list (path + persisted order). */
+export const ContextAttachment = z.object({
+  path: z.string(),
+  order: z.number().int(),
+});
+export type ContextAttachment = z.infer<typeof ContextAttachment>;
+
+/** Response for the Project Context Preview fetch (view-only, full raw text). */
+export const ContextFileContent = z.object({
+  path: z.string(),
+  content: z.string(),
+});
+export type ContextFileContent = z.infer<typeof ContextFileContent>;
 
 // ---- Run request (review trigger; owned by A2, contract lives here) ----
 export const RunRequest = z.object({
