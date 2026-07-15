@@ -24,6 +24,7 @@ export const DEFAULT_CATEGORY_COLOR = "#9ca3af";
 export const DETAIL_TABS = [
   { key: "config", label: "Config" },
   { key: "preview", label: "Preview" },
+  { key: "context", label: "Context" },
   { key: "evals", label: "Evals" },
   { key: "stats", label: "Stats" },
   { key: "versions", label: "Versions" },

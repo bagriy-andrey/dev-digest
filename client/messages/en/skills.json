@@ -97,5 +97,22 @@
     "bodyLabel": "Skill body (Markdown)",
     "bodyHint": "Saving a changed body creates a new immutable version.",
     "version": "v{version}"
+  },
+  "context": {
+    "title": "Project Context",
+    "attachedCount": "{count} attached",
+    "helper": "Any agent using this skill inherits these documents.",
+    "noDocs": "No documents discovered in the active repo yet. Add markdown under specs/, docs/, or insights/ and re-index from the Project Context page.",
+    "noActiveRepo": "Select a repo to attach project context documents.",
+    "dragHandle": "Reorder {name}",
+    "previewLabel": "Preview {name}",
+    "previewError": "Couldn’t load this document",
+    "serializesAs": "SERIALIZES AS",
+    "serializesEmpty": "No documents attached — nothing will be injected.",
+    "sourceType": {
+      "specs": "Specs",
+      "docs": "Docs",
+      "insights": "Insights"
+    }
   }
 }
