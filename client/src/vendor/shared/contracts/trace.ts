@@ -67,6 +67,11 @@ export const RunStats = z.object({
   cost_usd: z.number().nullish(),
   findings: z.number().int(),
   grounding: z.string(),
+  // Measured (not estimated) token size of the assembled `## Project context`
+  // block (AC-23); nullish — absent on pre-Project-Context traces, per the
+  // repo's rule that fields added to the `run_traces.trace` jsonb doc must
+  // tolerate historical rows.
+  specs_tokens: z.number().int().nullish(),
 });
 export type RunStats = z.infer<typeof RunStats>;
 
