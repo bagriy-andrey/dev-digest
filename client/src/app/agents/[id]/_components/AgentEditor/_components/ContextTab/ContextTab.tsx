@@ -64,10 +64,31 @@ export function ContextTab({ agent }: { agent: Agent }) {
     [docList, attachments],
   );
 
-  const order = pendingOrder ?? serverOrder;
+  // Effective row order: the frozen pendingOrder (if any), with any doc path
+  // not yet present (e.g. newly discovered via re-index) appended so it's
+  // never silently hidden while frozen.
+  const order = React.useMemo(() => {
+    if (!pendingOrder) return serverOrder;
+    const known = new Set(pendingOrder);
+    const missing = docList.map((d) => d.path).filter((p) => !known.has(p));
+    return missing.length ? [...pendingOrder, ...missing] : pendingOrder;
+  }, [pendingOrder, serverOrder, docList]);
 
-  // Clear pending order once server data matches (mirrors SkillsTab).
+  // A toggle freezes `order` via setPendingOrder below; skip the very next
+  // reconcile run because at that point `attachments` hasn't refetched yet,
+  // so serverOrder is still trivially equal to what we just froze — without
+  // this guard the effect immediately un-freezes it before the mutation
+  // (and its attached-first regroup) ever lands, defeating the freeze.
+  const skipNextReconcileRef = React.useRef(false);
+
+  // Clear pending order once server data matches (mirrors SkillsTab) — only
+  // relevant for drag-triggered freezes; toggle-triggered freezes are meant
+  // to stay pinned for the session (see handleToggle).
   React.useEffect(() => {
+    if (skipNextReconcileRef.current) {
+      skipNextReconcileRef.current = false;
+      return;
+    }
     if (pendingOrder && serverOrder.join(",") === pendingOrder.join(",")) {
       setPendingOrder(null);
     }
@@ -83,6 +104,11 @@ export function ContextTab({ agent }: { agent: Agent }) {
     const nextAttached = new Set(attachedSet);
     if (nextAttached.has(path)) nextAttached.delete(path);
     else nextAttached.add(path);
+    // Freeze the current row order so toggling attach state doesn't jump the
+    // row to the attached-first group mid-session — attach/detach persists
+    // priority for injection, but must not visually reposition rows.
+    skipNextReconcileRef.current = true;
+    setPendingOrder(order);
     persist(order, nextAttached);
   }
 

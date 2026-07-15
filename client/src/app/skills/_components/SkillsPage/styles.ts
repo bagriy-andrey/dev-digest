@@ -87,11 +87,12 @@ export const s = {
 
   // preview tab
   previewCard: {
-    background: "var(--bg-canvas, #fff)",
-    color: "#111",
+    background: "var(--bg-elevated)",
+    color: "var(--text-primary)",
     borderRadius: 10,
     padding: "28px 32px",
     maxWidth: 720,
+    overflowX: "auto",
     fontSize: 14,
     lineHeight: 1.65,
   } satisfies CSSProperties,
