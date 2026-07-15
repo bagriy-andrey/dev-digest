@@ -396,6 +396,37 @@
   uses container-override object literals, but that pattern only works for container-resolved deps, not
   for a class a module `new`s up itself. New file: `test/run-executor.test.ts`.
 
+- 2026-07-15: Implemented `modules/onboarding/` (SPEC-01-onboarding-generator step 3 —
+  `constants`/`repository`/`service`/`routes`, registered in `modules/index.ts`). Key
+  finding: `OnboardingService.generate()` can be tested hermetically end-to-end (single-
+  LLM-call assertion, AC-5/AC-8/AC-9 wiring) WITHOUT a real DB by combining two existing
+  patterns rather than inventing a new one — (1) `RepoRepository` (from `../repos/
+  repository.js`) is imported directly, cross-module, exactly like `ContextService`
+  already does (an accepted exception to the "cross-cutting repos hang off the
+  container" rule for this specific shared repo, not just `agentsRepo`/`reviewRepo`);
+  (2) after `new OnboardingService(container)`, both `svc.repo` (`OnboardingRepository`)
+  AND `svc.repos` (`RepoRepository`) are overwritten post-construction with stub object
+  literals, the exact same trick `test/repo-intel-facade-degraded.test.ts` uses for
+  `RepoIntelService.repo`. This avoids needing a fake drizzle query-builder chain for
+  everything EXCEPT `resolveFeatureModel`, which still reads `container.db` directly
+  (`getFeatureModelOverride`'s `select({...}).from(t.settings).where(...)`) — that one
+  call site can't be bypassed by overriding a repo field, so the test container's `db`
+  must still provide a minimal `{ select: () => ({ from: () => ({ where: async () => [] }) }) }`
+  chain (returning no override rows) even though nothing else in the pipeline touches
+  `container.db` directly. ⇒ For any future single-LLM-call module service that also
+  calls `resolveFeatureModel`, hermetic testing needs this same minimal fake `db`
+  regardless of how thoroughly the module's own repositories are stubbed out.
+- 2026-07-15: The AC-9 "drop hallucinated `links[].path`" backstop needs a "known paths"
+  set built from ALL of this generation's gathered facts, but `getRepoMap(repoId).text`
+  (the repo-map skeleton) has no clean parseable list of paths — it's a formatted tree
+  string, not an array. `buildKnownPaths` (`modules/onboarding/service.ts`) handles this
+  with a best-effort regex extraction (`/[\w.\-/]+\.[A-Za-z0-9]+/g` — anything with a
+  file-extension-shaped suffix) over the raw text, unioned with the exact manifest
+  filenames used, `getTopFilesByRank`'s paths, and `getCriticalPaths`' flattened chains.
+  This is deliberately lossy/best-effort (a link to a real file the regex fails to spot
+  in the tree text gets dropped too) but errs toward the spec's stated priority — AC-9
+  cares about never rendering an INVENTED path, not about maximizing recall of real ones.
+
 ## Open Questions
 
 - API Contract Reviewer experiment (skills-off vs skills-on) not yet run — needs a breaking-change PR in a cloned repo + two review runs to compare.
