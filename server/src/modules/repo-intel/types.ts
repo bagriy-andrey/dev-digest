@@ -186,4 +186,6 @@ export interface RepoIntel {
     opts?: { exclude?: string[] },
   ): Promise<string[]>;
   getCriticalPaths(repoId: string): Promise<string[][]>;
+  /** Repo-wide extracted endpoints ("METHOD /path"), deduped. `[]` when off/degraded/no-data (onboarding Routes & APIs — AC-4). */
+  getRepoEndpoints(repoId: string): Promise<string[]>;
 }
