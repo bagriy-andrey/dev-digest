@@ -212,6 +212,8 @@
 - When a prior feature (e.g. the shipped `blast_summary` `FeatureModelId`) exists only as UNCOMMITTED work in the main checkout (see the worktree-isolation entry above), syncing just the feature's own module directory into a fresh worktree is NOT enough — its transitive registration in `vendor/shared/contracts/platform.ts` (`FEATURE_MODELS`/`FeatureModelId` union) is a separate uncommitted diff and typecheck fails at the *consumer* call site (`blast/service.ts` calling `resolveFeatureModelForRepo(..., 'blast_summary')`) with a union-type error that doesn't mention `platform.ts` at all. Always `diff <main>/path <worktree>/path` on the vendored contract files too, not just the feature's own module files, before assuming a worktree sync is complete.
 - Adding a required field to a widely-shared vendored contract (e.g. `prior_prs` on `BlastRadius`) can break test fixtures OUTSIDE the module the plan calls out. `server/test/contracts.test.ts` is a generic, cross-cutting fixture-round-trip test (parses hardcoded literals for every `PrBrief` building block in one file) — it broke on the same `BlastRadius.parse(...)` requirement the plan's spec correctly flagged for `blast/helpers.test.ts` but didn't mention for this file. Before adding a required field to a shared contract, grep the WHOLE repo for `<Contract>.parse(` / hardcoded literal objects of that shape, not just the module-adjacent test file — a plan's file list can miss a shared fixture test that happens to hardcode the same contract.
 
+- **`SimpleGitClient` (`adapters/git/simple-git.ts`) is architecturally a strict READ-ONLY mirror — there is no write path at all.** `GitClient` exposes only `clone/fetch/diff/blame/log/readFile`; there is no `writeFile`/commit/push method anywhere in the interface. `sync()` (`simple-git.ts:78-85`) advances the clone with `git fetch` + `git reset --hard origin/<branch>`, with an explicit code comment that this is "safe here because we never commit to or run code from the clone." ⇒ Any future feature that tempts an "edit this file from the UI and save it" affordance on repo content (e.g. a spec/doc editor) CANNOT persist that edit by writing into the clone on disk — the next `sync()`/resync job will silently `reset --hard` it away with no error, no warning, and no trace. Real persistence needs either a DB-side override table (content never touches the git clone) or genuine git write-back (commit + push, its own much bigger feature: branch/PR strategy, a write-scoped `GITHUB_TOKEN`) — there is no cheap middle ground. Found while scoping the Project Context feature's Edit tab (`server/specs/SPEC-01-project-context.md`); resolved there by dropping Edit entirely (view-only) rather than building either alternative.
+
 ## Tool & Library Notes
 
 - In this sandbox environment, `testcontainers` cannot start a Postgres container even though
@@ -321,6 +323,40 @@
   PR (`bagriy-andrey/ai-stock-app` #5) confirmed `route_symbols` now populates correctly for all
   3 PR-relevant controllers post-full-reindex, but `impactedEndpoints` on that specific PR is
   still empty because of the separate `file_edges` gap, not this fix.
+
+- 2026-07-14: Project Context feature spec written (`server/specs/SPEC-01-project-context.md`,
+  L05, cross-package server+client+reviewer-core). Audited existing scaffold first, same "already
+  built, nothing wired" shape as `review_intent`/`SmartDiff` above: `reviewer-core`'s
+  `assemblePrompt` already has a working `specs?: string[]` slot producing a `wrapUntrusted(...)`
+  `## Project context` block (`prompt.ts:101-104,146`); `PromptAssembly.specs` and
+  `RunTrace.specs_read` already exist in the shared contract (`trace.ts:43,89`); a `SpecFile`
+  contract already exists (`platform.ts:278`); client hooks `useContextFiles`/`useReindexContext`
+  already call not-yet-built routes (`hooks/core.ts:122-137`). `run-executor.ts` is the actual gap
+  — it never passes `specs` and hardcodes `specs_read: []` (`run-executor.ts:254`), so most of this
+  feature is wiring, not new engine work. Also found (and will need fixing to match this feature's
+  required block order): `assemblePrompt` currently renders `## Repo skeleton` BEFORE
+  `## Project context`, deliberately ("model sees structure first", `prompt.ts:50-53,143-146`) —
+  the spec requires flipping that relative order. Genuinely net-new: an attachment-storage home
+  (no generic `metadata` column exists on `agents` or a skills table today) and a real per-block
+  token count in the trace (existing `tokens_in`/`tokens_out` are whole-prompt only). A dead
+  RAG/embedding scaffold also exists (`code_chunks` table with `embedding vector(1536)`, an
+  `'embedding'` `IndexStatus` phase, gated OpenAI `embed()` behind `embeddingsEnabled` default OFF)
+  — explicitly kept OUT of this feature's footer-stats requirement to preserve "zero new LLM
+  calls"; don't wire it in when implementing SPEC-01's "Indexed/chunks" footer, that's a
+  deterministic doc/heading count, not embeddings. No code written yet.
+
+- 2026-07-15: Implementation Plan for SPEC-01 written (`server/specs/SPEC-01-project-context-plan.md`,
+  9 steps, single-agent execution). Confirmed the client run-trace screen (AC-21/AC-22) needs
+  **zero new client code**: `client/src/app/repos/[repoId]/pulls/[number]/_components/RunTraceDrawer/_components/TraceBody/TraceBody.tsx:39-51,85-87`
+  already renders `trace.specs_read` and `prompt_assembly.specs` — those fields are only ever
+  empty today because `run-executor.ts` hardcodes `specs_read: []` and never passes `specs`
+  (per the 2026-07-14 entry above). ⇒ For SPEC-01, "Specs read" + the expandable "Project
+  context — attached specs" trace block are satisfied purely by the server starting to populate
+  data the UI already knows how to display — don't plan any `RunTraceDrawer`/`TraceBody` work for
+  this feature. Also newly confirmed net-new pieces (not covered by the 07-14 audit): two
+  path-only link tables (`agent_context_docs`, `skill_context_docs`, no `repo_id` — attachment is
+  not repo-scoped) + a `repo_context_index` scan-state table, and discovery uses Node 22's
+  `fs.readdir({ recursive: true })` (no new glob dependency needed).
 
 - 2026-07-15: `ContextService.resolveEffectiveSpecs`'s `log?: Logger` parameter (`modules/context/service.ts`)
   uses the Fastify `req.log`-style signature (`info: (obj: unknown, msg?: string) => void`, plus a

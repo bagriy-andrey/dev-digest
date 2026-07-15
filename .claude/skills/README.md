@@ -19,6 +19,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [engineering-insights](engineering-insights/SKILL.md) | Meta | Capture-learnings loop — read/append per-module `insights.md` (append-only, deduped) |
 | [pr-self-review](pr-self-review/SKILL.md) | Meta | Pre-PR gate — routes diff through architecture/quality skills, blocks on CRITICAL |
 | [sdd-build](sdd-build/SKILL.md) | Meta | Builds an already-approved Implementation Plan: implementer(s) → verify → bounded architecture fix-loop (no spec-creator/planner) |
+| [workflow-retro](workflow-retro/SKILL.md) | Meta | Retrospective over a just-completed multi-agent workflow — agent roster/order, token/cost per agent, clarification friction, duplicated work, recommendations. Run manually with `/workflow-retro` |
 | [onion-architecture](onion-architecture/SKILL.md) | Backend | Enforces Onion Architecture for server/ modules: layers, dependency rule, ports, adapters, DI container, repository pattern, testing strategy |
 
 ## What Are Skills?
