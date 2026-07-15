@@ -32,6 +32,36 @@ describe('assemblePrompt — shared injection guard (server + CI)', () => {
   });
 });
 
+describe('assemblePrompt — user-section order (AC-17)', () => {
+  it('orders Skills → Project context → Repo skeleton → Callers → Diff', () => {
+    const user = userOf({
+      system: 'sys',
+      diff: 'DIFF',
+      skills: ['skill body'],
+      specs: ['spec body'],
+      repoMap: 'repo map body',
+      callers: 'callers body',
+    });
+
+    const skillsIdx = user.indexOf('## Skills / rules');
+    const specsIdx = user.indexOf('## Project context');
+    const repoMapIdx = user.indexOf('## Repo skeleton');
+    const callersIdx = user.indexOf('## Callers of changed symbols');
+    const diffIdx = user.indexOf('## Diff to review');
+
+    expect(skillsIdx).toBeGreaterThanOrEqual(0);
+    expect(specsIdx).toBeGreaterThanOrEqual(0);
+    expect(repoMapIdx).toBeGreaterThanOrEqual(0);
+    expect(callersIdx).toBeGreaterThanOrEqual(0);
+    expect(diffIdx).toBeGreaterThanOrEqual(0);
+
+    expect(skillsIdx).toBeLessThan(specsIdx);
+    expect(specsIdx).toBeLessThan(repoMapIdx);
+    expect(repoMapIdx).toBeLessThan(callersIdx);
+    expect(callersIdx).toBeLessThan(diffIdx);
+  });
+});
+
 describe('assemblePrompt — ## PR description', () => {
   it('renders the section (untrusted-wrapped) before the diff when present', () => {
     const { messages, assembly } = assemblePrompt({
