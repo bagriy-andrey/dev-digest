@@ -41,6 +41,8 @@ export interface RunAgentReviewOpts {
   prDescription?: string;
   /** PR-shaped, optional: stored PR intent/scope (classifier output). */
   intent?: { summary: string; inScope: string[]; outOfScope: string[] };
+  /** Project Context (SPEC-01): effective attached-doc bodies, already `Path: X\n\n<content>`-formatted. */
+  specs?: string[];
   onEvent?: (e: { kind: RunEventKind; msg: string; data?: unknown }) => void;
   checkCancelled?: () => void;
   log?: AgentRunLog;
@@ -112,6 +114,11 @@ export async function runAgentReview(container: Container, opts: RunAgentReviewO
     ...(callersDigest ? { callers: callersDigest } : {}),
     // T3 — repo skeleton, same omit-when-empty contract.
     ...(repoMap ? { repoMap } : {}),
+    // Project Context (SPEC-01): effective attached-doc bodies → "## Project
+    // context" block. Omitted when empty (no docs attached / all skipped).
+    // Conditional-spread bypasses excess-property checks — safe here since
+    // reviewer-core's `specs?` prompt slot already exists.
+    ...(opts.specs && opts.specs.length > 0 ? { specs: opts.specs } : {}),
     // PR author's description/body — untrusted; assemblePrompt wraps +
     // truncates it. Omitted when there is none (e.g. the working-tree caller).
     ...(opts.prDescription ? { prDescription: opts.prDescription } : {}),
