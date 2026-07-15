@@ -88,6 +88,20 @@
   file after Step 1 landed, undetected until Step 3 ran a fresh typecheck; fixed with one line
   (`prior_prs: []` in the builder).
 
+- 2026-07-15: `lib/hooks/index.ts` barrel is NOT auto-populated — adding a new hook file
+  (e.g. `hooks/context.ts`) requires a manual `export * from "./context";` line or its
+  hooks are only reachable via the direct path import (`@/lib/hooks/context`), not
+  `@/lib/hooks`. A step whose file-list is scoped to just the new hook file (not
+  `index.ts`) will correctly skip this — flag it for whichever step first renders a
+  component that wants the barrel import.
+- 2026-07-15: For a mutation whose PUT/POST route is scoped to one entity (e.g.
+  `PUT /agents/:id/context`) but whose success needs to invalidate a query keyed by a
+  DIFFERENT entity not in the URL (e.g. `["context", repoId]`, since docs are discovered
+  per-repo but attached per-agent with no repo_id column), make that second id a required
+  field on the mutation's input object — passed through to `onSuccess` for the extra
+  `invalidateQueries` call, never sent in the request body. Optional/nullable would let a
+  caller silently forget it and leave stale metrics cached.
+
 ## Open Questions
 
 - **RESOLVED 2026-07-09** — both gaps closed, see the matching Session Notes entry below
