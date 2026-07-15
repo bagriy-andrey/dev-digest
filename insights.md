@@ -258,6 +258,24 @@
   done here), not something the step's agent should silently patch by editing a file outside its
   declared list.
 
+- **When a task claims prior plan steps are "already merged into the worktree" but a grep for
+  their expected symbols comes up empty, the fix can be a plain `git merge` — not a manual
+  file-copy — IF a dedicated per-lesson integration branch exists among the sibling worktree
+  branches.** Concretely (SPEC-01 step 4, L05): each prior step (1/2/3) had been implemented in
+  its OWN throwaway `worktree-agent-<id>` branch, forked straight off the pre-lesson base commit
+  and never touching each other; a separate `abahrii-<lesson>` branch (here `abahrii-L05`) had
+  already fast-forward-merged all three step commits in order. This worktree's own branch
+  (`worktree-agent-<this-id>`) was ALSO forked off that same pre-lesson base commit, so it had
+  none of the three steps — `git log --oneline` on it stopped at the pre-lesson merge commit, and
+  `git branch --all --contains <step-N-commit>` showed the step's commit only on its own
+  throwaway branch plus `abahrii-<lesson>`, never on this worktree's branch. `git merge
+  abahrii-L05 --no-edit` fast-forwarded cleanly (zero conflicts, since the integration branch was
+  a strict superset). ⇒ Before falling back to the "diff + manually copy files into the worktree"
+  fix from the entry above (which is for genuinely UNCOMMITTED prior-step output), first run `git
+  branch --all --contains <expected-symbol-file>` or scan `git log --oneline <each-worktree-branch>
+  -5` for a per-lesson integration branch name — if one exists and is a strict ancestor-superset,
+  a single `git merge` is both correct and much cheaper than reconstructing files by hand.
+
 - The **`github@claude-plugins-official` MCP plugin ignores this project's `GITHUB_TOKEN`/
   `GITHUB_PAT` convention entirely.** Its bundled `.mcp.json` builds the auth header from
   `${GITHUB_PERSONAL_ACCESS_TOKEN}` — a different env var name — and that var must be visible to
