@@ -2,23 +2,25 @@
   "title": "Project Context",
   "chunks": "{count} chunks",
   "reindex": "Re-index",
-  "indexing": "Indexing…",
-  "resync": "Resync",
-  "resyncing": "Resyncing…",
-  "indexStatus": "Index status: {status}",
-  "loadError": "Couldn’t load specs",
+  "indexing": "Re-indexing…",
+  "indexed": "Indexed: {files} files · {chunks} chunks · last {ago} ago",
+  "indexedUnknown": "Indexed: {files} files · {chunks} chunks",
+  "loadError": "Couldn’t load project context",
+  "previewError": "Couldn’t load this document",
+  "usedBy": "Used by {count} agents",
+  "coverage": "COVERAGE",
   "kb": "{kb}kb",
+  "sourceType": {
+    "specs": "Specs",
+    "docs": "Docs",
+    "insights": "Insights"
+  },
+  "selectPrompt": {
+    "title": "Select a document",
+    "body": "Choose a document from the list to preview it."
+  },
   "empty": {
     "title": "No spec files yet",
-    "body": "Drop your PRDs, tech specs, and acceptance criteria under .devdigest/specs/. Every agent and the PR brief read them as grounding context."
-  },
-  "mode": {
-    "preview": "preview",
-    "edit": "edit"
-  },
-  "editor": {
-    "loadError": "Couldn’t load spec",
-    "save": "Save",
-    "saving": "Saving…"
+    "body": "Drop your PRDs, tech specs, and acceptance criteria under specs/, docs/, or insights/. Every agent reads them as grounding context."
   }
 }
