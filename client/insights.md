@@ -127,6 +127,22 @@
   a persisted-on-load "last scanned" becomes a real requirement, it needs a new server route (or
   the value folded into `GET /repos/:id/context`'s response) — out of scope for a client-only step.
 
+- 2026-07-15: The plan's "active repo" mechanism for repo-scoped pickers inside
+  workspace-scoped entities (agents/skills have no `repo_id`) already exists —
+  `useActiveRepo()` in `client/src/lib/repo-context.tsx` (NOT under `lib/hooks/`),
+  returning `{ repoId, activeRepo, repos, setRepoId, reposLoaded }` from a
+  `RepoProvider` context (URL `:repoId` > localStorage > first repo). A step
+  briefed to "flag it as a gap if no such mechanism exists" should grep
+  `lib/repo-context` before concluding one is missing. Also: the Agent Context
+  tab (`AgentEditor/_components/ContextTab`) deliberately deviates from
+  `SkillsTab`'s two-panel (linked | available) DnD layout — the plan calls for
+  "one row per discovered doc" (attach state as a checkbox, not panel
+  membership), so it's a single `SortableContext` over ALL discovered docs
+  (attached-first, then alpha), with `persist()` filtering the full order down
+  to just the attached subset before calling `useSetAgentContextDocs`. Only
+  `SkillsTab`'s DnD *primitives* (dnd-kit sensors, `GripHandle`, optimistic
+  `pendingOrder` cleared once server order matches) carry over, not its layout.
+
 ## Open Questions
 
 - **RESOLVED 2026-07-09** — both gaps closed, see the matching Session Notes entry below
