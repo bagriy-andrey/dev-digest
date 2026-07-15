@@ -49,6 +49,21 @@
   on the whole rendered line, not per-segment substrings, unless you wrap each stat in its own
   element.
 
+## Codebase Patterns (nav)
+
+- **Sidebar `NavItem`s are NOT configured in `components/app-shell/`** — they live in the vendored
+  `src/vendor/ui/nav.ts` (`NAV: NavGroup[]`), consumed by `vendor/ui/shell/Sidebar.tsx`.
+  `components/app-shell/helpers.ts`'s `activeKeyFor()` only maps a pathname to a highlight key; it
+  does not register the item itself, and `app-shell/constants.ts` has no nav-item list at all —
+  there is no extension point on `ShellContext` for injecting extra nav items from the app side.
+  A plan step whose file list says "modify app-shell nav (constants.ts + helpers.ts)" to add a new
+  repo-scoped sidebar link is describing the wrong files if `activeKeyFor` already anticipates the
+  route (it often does — this codebase pre-writes `activeKeyFor` branches ahead of the nav item
+  existing). The actual one-line addition has to go in `vendor/ui/nav.ts`'s `NAV` array — treat
+  this the same as vendored `shared` contracts (hand-edited in place per AGENTS.md's cross-cutting
+  note), not as an off-limits third-party file, since `nav.ts` is first-party route/shortcut
+  config, not a component implementation.
+
 ## Recurring Errors & Fixes
 
 - **CSS var hardcoded fallback breaks dark mode**: `var(--token, #hardcoded-light-color)` silently renders the hex fallback in dark mode when `--token` is undefined. Always use another CSS variable as fallback (`var(--token, var(--other-token))`) or omit the fallback and define the token in the theme. Fixed: `var(--accent-subtle, #f0f7ff)` → `var(--accent-bg)` on the selected CandidateCard background.
@@ -101,6 +116,16 @@
   field on the mutation's input object — passed through to `onSuccess` for the extra
   `invalidateQueries` call, never sent in the request body. Optional/nullable would let a
   caller silently forget it and leave stale metrics cached.
+
+- **Project Context page footer can't show a real "last scanned" time on initial load.**
+  `GET /repos/:id/context` returns `ContextDoc[]` (no scan timestamp) and `repo_context_index`
+  (which persists `scanned_at`) has no GET route — only `POST /repos/:id/context/reindex`'s
+  response carries a `scanned_at`. The Project Context page (`app/repos/[repoId]/context/`)
+  therefore only knows "last scanned" for the current browser session, after the user has clicked
+  Re-index; before that it renders the doc-derived file/chunk counts without a "last … ago" clause
+  (`context.indexedUnknown` vs `context.indexed` i18n keys) rather than fabricate a timestamp. If
+  a persisted-on-load "last scanned" becomes a real requirement, it needs a new server route (or
+  the value folded into `GET /repos/:id/context`'s response) — out of scope for a client-only step.
 
 ## Open Questions
 
