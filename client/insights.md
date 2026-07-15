@@ -143,6 +143,23 @@
   `SkillsTab`'s DnD *primitives* (dnd-kit sensors, `GripHandle`, optimistic
   `pendingOrder` cleared once server order matches) carry over, not its layout.
 
+- 2026-07-15: Added the Skill Context tab (SPEC-01 step 9, Screen 3) as a
+  separate component tree from `AgentEditor/_components/ContextTab` (skills
+  and agents are different entities — only the row/DnD/Preview pattern is
+  mirrored, not shared code). Two things worth flagging for future
+  cross-entity "same UI, different entity" tabs: (1) `SkillsPage/constants.ts`'s
+  `DETAIL_TABS` uses **hardcoded English `label` strings**, unlike
+  `AgentEditor/constants.ts`'s `TABS` which uses a `labelKey` resolved via
+  `t()` — the two tab-bar patterns are inconsistent within the same codebase;
+  match whichever pattern the file you're editing already uses rather than
+  "fixing" it as part of an unrelated feature step. (2) `SkillDetailPanel.tsx`'s
+  `detailTabBody` (`styles.ts`, padding 28 + overflow auto) needs a per-tab
+  inline override to `{ padding: 0, overflow: "hidden" }` for a full-height
+  row-list/DnD tab, exactly like `AgentEditor.tsx` already does for its own
+  `skills`/`context` tabs — done inline in the `.tsx` file (conditional on
+  `activeTab`), not by editing `styles.ts`, since a plan step's file list may
+  legitimately omit `styles.ts` from what a component tab is allowed to touch.
+
 ## Open Questions
 
 - **RESOLVED 2026-07-09** — both gaps closed, see the matching Session Notes entry below
