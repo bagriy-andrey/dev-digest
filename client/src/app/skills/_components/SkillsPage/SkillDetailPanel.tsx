@@ -5,6 +5,7 @@ import { Icon, Badge, Button, Tabs } from "@devdigest/ui";
 import type { Skill } from "@devdigest/shared";
 import { ConfigTab } from "./_components/ConfigTab";
 import { PreviewTab } from "./_components/PreviewTab";
+import { ContextTab } from "./_components/ContextTab";
 import { StatsTab } from "./_components/StatsTab";
 import { VersionsTab } from "./_components/VersionsTab";
 import { SKILL_TYPE_COLORS, SKILL_TYPE_BG, DETAIL_TABS } from "./constants";
@@ -50,9 +51,17 @@ export function SkillDetailPanel({
 
       <Tabs tabs={tabs} value={activeTab} onChange={onTab} pad="0 24px" />
 
-      <div style={s.detailTabBody}>
+      <div
+        style={
+          // Context tab is a full-height row list + DnD area (mirrors
+          // AgentEditor's per-tab override for its own Context tab) — it
+          // opts out of the default 28px padding / auto-overflow body.
+          activeTab === "context" ? { ...s.detailTabBody, padding: 0, overflow: "hidden" } : s.detailTabBody
+        }
+      >
         {activeTab === "config" && <ConfigTab skill={skill} />}
         {activeTab === "preview" && <PreviewTab skill={skill} />}
+        {activeTab === "context" && <ContextTab skill={skill} />}
         {activeTab === "evals" && (
           <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Evals coming soon.</div>
         )}
