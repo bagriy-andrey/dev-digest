@@ -9,9 +9,12 @@ import {
   vector,
   index,
   uniqueIndex,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 import { workspaces } from './core';
 import { repos } from './repos';
+import { agents } from './agents';
+import { skills } from './skills';
 
 // ============================================================ Context & codebase
 
@@ -123,4 +126,47 @@ export const onboarding = pgTable('onboarding', {
     .references(() => repos.id, { onDelete: 'cascade' }),
   json: jsonb('json').notNull(),
   generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ============================================================ Project Context (SPEC-01)
+
+/**
+ * Per-agent Project Context attachments — paths only, never baked-in text
+ * (`server/specs/SPEC-01-project-context.md`). No `repo_id`: agents/skills are
+ * workspace-scoped, so a path is matched against whichever repo the PR being
+ * reviewed is in, at run time. Mirrors `agentSkills`'s `(fk, order)` shape.
+ */
+export const agentContextDocs = pgTable(
+  'agent_context_docs',
+  {
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    order: integer('order').notNull().default(0),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.agentId, t.path] }) }),
+);
+
+/** Per-skill Project Context attachments — same shape as `agentContextDocs`. */
+export const skillContextDocs = pgTable(
+  'skill_context_docs',
+  {
+    skillId: uuid('skill_id')
+      .notNull()
+      .references(() => skills.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    order: integer('order').notNull().default(0),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.skillId, t.path] }) }),
+);
+
+/** Deterministic per-repo Project Context discovery scan state (footer stats). */
+export const repoContextIndex = pgTable('repo_context_index', {
+  repoId: uuid('repo_id')
+    .primaryKey()
+    .references(() => repos.id, { onDelete: 'cascade' }),
+  files: integer('files').notNull().default(0),
+  chunks: integer('chunks').notNull().default(0),
+  scannedAt: timestamp('scanned_at', { withTimezone: true }).defaultNow().notNull(),
 });
