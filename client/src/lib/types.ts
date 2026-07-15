@@ -40,6 +40,12 @@ export type {
 
 export type { Review, Finding, Severity, Verdict } from "@devdigest/shared";
 export type { PrBrief, SmartDiff, Intent, BlastRadius } from "@devdigest/shared";
+export type {
+  Onboarding,
+  OnboardingSection,
+  OnboardingLink,
+  OnboardingDoc,
+} from "@devdigest/shared";
 export type { Skill, SkillType, SkillSource, AgentSkillLink } from "@devdigest/shared";
 
 /**
