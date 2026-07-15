@@ -322,6 +322,32 @@
   3 PR-relevant controllers post-full-reindex, but `impactedEndpoints` on that specific PR is
   still empty because of the separate `file_edges` gap, not this fix.
 
+- 2026-07-15: `ContextService.resolveEffectiveSpecs`'s `log?: Logger` parameter (`modules/context/service.ts`)
+  uses the Fastify `req.log`-style signature (`info: (obj: unknown, msg?: string) => void`, plus a
+  required `warn`), NOT `RunLogger`'s shape (`info(msg: string, data?: unknown)`, no `warn` at all —
+  only `info`/`tool`/`result`/`error`). Passing a `RunLogger`/`runLog.forRun(...)` instance straight
+  into `resolveEffectiveSpecs` as its `log` arg does NOT typecheck (missing `warn`, and the two
+  `info` signatures are parameter-order-incompatible, not just differently named) — this bit wiring
+  run-executor.ts's Project Context injection (SPEC-01 step 5) to `runOneAgent`. Fix: build a tiny
+  inline adapter object `{ info: (obj, msg) => runLog.info(msg ?? '', obj), warn: (obj, msg) =>
+  runLog.info(msg ?? '', obj), error: (obj, msg) => runLog.error(msg ?? '', obj) }` (mapping `warn` →
+  an `info`-level RunLog event, since `RunEventKind` has no `'warn'` variant) and pass that instead.
+  ⇒ Any future service accepting a pino-shaped `Logger` that needs to be driven from `run-executor.ts`
+  needs this same adapter — `RunLogger` is not a `PinoLike`/pino-shaped logger despite superficially
+  looking like one (both take an optional second arg).
+- 2026-07-15: No hermetic test file previously exercised `ReviewRunExecutor.runOneAgent`'s trace-building
+  (only `test/reviews.it.test.ts`, real-PG, and `test/agent-runner.test.ts`, which only covers the
+  extracted `runAgentReview` helper). Testing `runOneAgent` hermetically requires mocking `ReviewRepository`
+  (cast an object literal `as unknown as ReviewRepository`, same pattern as the `agentsRepo` insight
+  above) AND `container.git.diff` (otherwise `loadDiff` falls through to `repo.getPrFiles`, which isn't
+  mocked, and every run in the test fails with "repo.getPrFiles is not a function" before reaching the
+  agent loop at all). Since `ContextService` is `new`'d directly inside `run-executor.ts` (not
+  container-injected), asserting its output flows into the trace needs `vi.mock('../src/modules/context/service.js', ...)`
+  at module scope (imported before `run-executor.ts` itself, via a dynamic `await import(...)` after the
+  `vi.mock` call) — this repo had zero prior `vi.mock` usage anywhere in `server/test/`, everyone else
+  uses container-override object literals, but that pattern only works for container-resolved deps, not
+  for a class a module `new`s up itself. New file: `test/run-executor.test.ts`.
+
 ## Open Questions
 
 - API Contract Reviewer experiment (skills-off vs skills-on) not yet run — needs a breaking-change PR in a cloned repo + two review runs to compare.

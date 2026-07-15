@@ -8,6 +8,7 @@ import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './reposit
 import { taskLine } from './helpers.js';
 import { loadDiff } from './diff-loader.js';
 import { runAgentReview } from './agent-runner.js';
+import { ContextService } from '../context/service.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -159,6 +160,25 @@ export class ReviewRunExecutor {
       if (storedIntent) runLog.info('Intent: injecting stored PR intent/scope into the review prompt');
       else runLog.info('Intent: none stored for this PR — review runs without an intent section');
 
+      // Project Context (SPEC-01): resolve + read the agent's effective
+      // attached-doc set fresh from this PR's repo clone. Never fails the
+      // run — an unreadable doc is recorded in `skipped` (AC-19).
+      const ref = { owner: repo.owner, name: repo.name };
+      // ContextService's Logger mirrors the Fastify req.log convention
+      // (obj, msg) — adapt RunLogger's (msg, data) shape to it so a skip is
+      // still visible in the Live Log / persisted trace.
+      const contextLog = {
+        info: (obj: unknown, msg?: string) => runLog.info(msg ?? '', obj),
+        warn: (obj: unknown, msg?: string) => runLog.info(msg ?? '', obj),
+        error: (obj: unknown, msg?: string) => runLog.error(msg ?? '', obj),
+      };
+      const { specs, read, skipped } = await new ContextService(this.container).resolveEffectiveSpecs(
+        ref,
+        agent,
+        contextLog,
+      );
+      runLog.info(`Project context: ${read.length} doc(s) read, ${skipped.length} skipped`);
+
       const outcome = await runAgentReview(this.container, {
         repoId: pull.repoId,
         diff,
@@ -175,6 +195,7 @@ export class ReviewRunExecutor {
               },
             }
           : {}),
+        ...(specs.length > 0 ? { specs } : {}),
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
         checkCancelled: () => {
           if (this.container.runBus.isCancelled(runId)) throw new RunCancelledError();
@@ -182,6 +203,7 @@ export class ReviewRunExecutor {
         log: runLog,
       });
       const { tokensIn, tokensOut, grounding, costUsd } = outcome;
+      const specsTokens = outcome.assembly.specs ? this.container.tokenizer.count(outcome.assembly.specs) : 0;
 
       const keptFindings = outcome.review.findings;
 
@@ -240,6 +262,7 @@ export class ReviewRunExecutor {
           cost_usd: costUsd,
           findings: findingRows.length,
           grounding,
+          specs_tokens: specsTokens,
         },
         prompt_assembly: outcome.assembly,
         tool_calls: outcome.chunks.map((c) => ({
@@ -250,7 +273,7 @@ export class ReviewRunExecutor {
         })),
         raw_output: outcome.raw,
         memory_pulled: [],
-        specs_read: [],
+        specs_read: read,
         // Persisted log = the run's FULL event buffer (incl. shared pre-work:
         // diff load + intent), not just events recorded inside this method.
         log: runLog.logFor(runId),
