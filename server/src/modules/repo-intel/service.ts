@@ -914,6 +914,20 @@ export class RepoIntelService implements RepoIntel {
     }
     return paths;
   }
+
+  /**
+   * Repo-wide extracted endpoints ("METHOD /path"), deduped across every
+   * persisted `file_facts` row (onboarding Routes & APIs — AC-4). Deliberately
+   * endpoints-only (not crons) to match the AC-4 requirement; degraded gate
+   * mirrors `getTopFilesByRank`/`getCriticalPaths`.
+   */
+  async getRepoEndpoints(repoId: string): Promise<string[]> {
+    if (!this.container.config.repoIntelEnabled) return [];
+    const facts = await this.repo.getAllFileFacts(repoId);
+    const set = new Set<string>();
+    for (const f of facts) for (const e of f.endpoints) set.add(e);
+    return [...set];
+  }
 }
 
 /** How many top-ranked files seed `getCriticalPaths` dependency chains. */
