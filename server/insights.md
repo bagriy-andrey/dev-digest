@@ -239,6 +239,18 @@
   dependency files to confirm the delta is exactly the prior step's declared output (nothing
   extra), then copy just those files into the worktree before starting your own step — don't
   redesign schema you were told is already done.
+- A DIFFERENT variant of the above (2026-07-15, SPEC-01-onboarding step 2): a prior step CAN be
+  fully committed on the feature branch (e.g. `c0fa6ee` "Integrate step 1: ...") while the current
+  worktree's own branch tip is still an ANCESTOR of it (`git log -1` shows an older commit, and
+  `git merge-base --is-ancestor <mine> <expected>` confirms it) — this happens when the worktree
+  was created before the prior step's integration commit landed on the shared branch, not because
+  anything is uncommitted. Diagnostic: `git merge-base --is-ancestor <worktree-HEAD> <expected-sha>`
+  succeeding (not the reverse) means it's safe to fast-forward. Fix, when `git status` is clean and
+  the worktree has no commits of its own beyond the stale tip: `git merge --ff-only <expected-sha>`
+  — a plain fast-forward, no rebase/merge-commit needed, since there's no divergent local history
+  to reconcile. Always verify with `git status`/`git log --oneline -1` first that the worktree truly
+  has zero unique commits before doing this; if it did, `--ff-only` would simply refuse and a real
+  rebase/merge decision would be needed instead.
 - The `...(cond ? { field } : {})` conditional-spread pattern used to pass optional prompt
   fields to `reviewPullRequest(...)` in `run-executor.ts` bypasses TypeScript's excess-property
   check: `pnpm typecheck` stays green even if `reviewer-core`'s `ReviewInput` doesn't yet declare
