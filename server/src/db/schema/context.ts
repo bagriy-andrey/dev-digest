@@ -126,6 +126,8 @@ export const onboarding = pgTable('onboarding', {
     .references(() => repos.id, { onDelete: 'cascade' }),
   json: jsonb('json').notNull(),
   generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
+  sourceSha: text('source_sha'), // NEW — nullable, index SHA at generation time
+  costCents: integer('cost_cents'), // NEW — nullable, integer cents (deliberately cents, not cost_usd)
 });
 
 // ============================================================ Project Context (SPEC-01)
