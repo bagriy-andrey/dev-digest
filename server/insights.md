@@ -427,6 +427,32 @@
   in the tree text gets dropped too) but errs toward the spec's stated priority — AC-9
   cares about never rendering an INVENTED path, not about maximizing recall of real ones.
 
+- 2026-07-16: Implemented `modules/brief/` (SPEC-02 step 3 — `constants`/
+  `helpers`/`service`/`routes`, registered in `modules/index.ts`). Two
+  findings: (1) `MockLLMProvider.completeStructured` (`adapters/mocks.ts`)
+  self-validates its configured fixture against the REQUEST's own `req.schema`
+  before returning (`schema.safeParse(fixture)`, throwing if it fails) — so
+  you CANNOT use the normal `new MockLLMProvider('openai', { structured: {...} })`
+  constructor to simulate a service receiving an INVALID structured response
+  (e.g. to test an AC-8-style "don't persist on parse failure" path); the mock
+  itself refuses to hand back non-conforming data. The working pattern (also
+  used by `onboarding.it.test.ts`'s LLM-failure test, but for a REJECTION, not
+  a malformed-but-resolved response) is to directly overwrite the instance
+  method after construction: `llm.completeStructured = vi.fn().mockResolvedValue({ data: {...garbage}, model, tokensIn, tokensOut, costUsd, raw, attempts })`,
+  bypassing the mock's own schema gate entirely. (2) A service that news-up's
+  MULTIPLE sibling services in its constructor (mirroring `BriefService`
+  composing `BlastService`/`SmartDiffService`/`ContextService` alongside its
+  own `ReviewRepository`, all only wrapping `container.db`) can be hermetically
+  tested by overriding EACH sibling-service instance field post-construction
+  with its own minimal stub object literal (`(svc as unknown as { blast: {...} }).blast = { get: async () => ... }`,
+  one per field) — same "overwrite post-construction" trick as `onboarding`'s
+  `svc.repo`/`svc.repos`, just applied to N fields instead of 2. This only
+  works if the service STORES each sibling as an instance field rather than
+  `new`-ing it up inline inside the method body — worth keeping in mind when a
+  plan's pseudocode shows an inline `new BlastService(this.container).get(...)`
+  one-liner: promoting it to a constructor-assigned field costs nothing at
+  runtime and is what makes the service testable without a real DB.
+
 ## Open Questions
 
 - API Contract Reviewer experiment (skills-off vs skills-on) not yet run — needs a breaking-change PR in a cloned repo + two review runs to compare.
