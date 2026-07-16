@@ -148,5 +148,24 @@
     "showMoreCallers": "+{count} more · See full map",
     "showMoreEndpoints": "+{count} more",
     "graphMoreCallers": "+{count} more…"
+  },
+  "brief": {
+    "label": "Why + Risk Brief",
+    "generate": "Generate",
+    "regenerate": "Regenerate",
+    "generating": "Generating…",
+    "empty": "No brief generated yet — Generate to summarize this PR's intent and risk.",
+    "loading": "Loading brief…",
+    "generateError": "Couldn't generate the brief — try again.",
+    "what": "What",
+    "why": "Why",
+    "riskLevel": "Risk level",
+    "riskLevels": {
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    },
+    "risks": "Risks",
+    "reviewFocus": "Review focus"
   }
 }
