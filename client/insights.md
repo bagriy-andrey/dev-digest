@@ -196,3 +196,19 @@
   screenshot" means that feature is missing — `endpoints_affected`/`crons_affected` badges ARE
   implemented in both `BlastRadiusCard` and `BlastTab`; they just render conditionally and were
   simply empty (0 impact) on the specific PR captured in that screenshot.
+
+- 2026-07-16: `lib/types.ts`'s re-export allowlist is per-name, not per-contract-file — `Brief`
+  is re-exported but `Risk`/`RiskSeverity` (building blocks `Brief.risks[]`/`Brief.risk_level`
+  reuse from the same vendored `contracts/brief.ts`) are NOT, because nothing else in the client
+  needed them standalone before. A step scoped to files that exclude `lib/types.ts` can't add the
+  missing export — derive the nested type structurally instead (`type RiskLevel =
+  Brief["risk_level"]`, `type RiskItem = Brief["risks"][number]`) rather than importing from the
+  vendored `@devdigest/shared` path directly (breaks the "always import from `lib/types.ts`"
+  convention) or widening the step's file list. Also: `@devdigest/ui`'s `SeverityBadge` takes a
+  `Severity` (`CRITICAL|WARNING|SUGGESTION|INFO`, the *findings* severity enum) — it does NOT
+  accept `RiskSeverity` (`high|medium|low`, the *Brief risk* enum used by `PrBriefCard`); despite
+  the similar name/purpose these are two distinct enums and `SeverityBadge` cannot be reused
+  as-is for a risk-level chip. Built a small local chip instead, reusing the same `--crit`/
+  `--warn`/`--ok` theme CSS vars `SeverityBadge` draws from (colour + a distinct icon per level:
+  `AlertOctagon`/`AlertTriangle`/`CheckCircle`) so it stays on-theme and satisfies the
+  colour-plus-non-colour-cue a11y requirement without a new hardcoded palette.
