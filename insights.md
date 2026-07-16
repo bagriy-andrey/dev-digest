@@ -304,6 +304,30 @@
 
 ## Session Notes
 
+- **2026-07-16 (SPEC-01-onboarding, 5-step single-agent-per-step pipeline): `.claude/agents/
+  implementer.md` never explicitly instructs the agent to `git commit` its work** — step 4 of its
+  instructions ("you're running in an isolated worktree... report the step's status; the caller
+  handles integrating your branch") silently assumes a commit already exists, but says nothing
+  about making one. On this feature's Step 1, the implementer made real `Edit`/`Write` changes in
+  its worktree, ran typecheck, and reported success — but never ran `git commit`, so `git merge
+  --no-ff <its-branch>` from the integration branch reported "Already up to date" (nothing to
+  merge) even though the work existed uncommitted in the worktree's checkout. This compounded with
+  a second, independent problem: that worktree's branch point was also stale (predated an
+  unrelated already-merged feature that had claimed the same migration number), so the two
+  failures together required a full manual reconstruction (diff the uncommitted work, verify it
+  was non-conflicting, reapply by hand on the integration branch, regenerate the migration, and
+  reconcile a Postgres instance the implementer's stale, uncommitted migration had nonetheless
+  already been run against). ⇒ Adding explicit "commit your work before reporting done" +
+  "self-check `git merge-base --is-ancestor <expected-base> HEAD`, and if it fails, `git status`
+  to confirm no unique commits then `git merge --ff-only <base>`" instructions directly into the
+  per-step dispatch prompt (not relying on `implementer.md`'s own wording) fully prevented repeat
+  failures on Steps 2–4 of this same feature — each of those implementers independently detected
+  its own worktree staleness and self-corrected via `git merge --ff-only` before committing
+  cleanly. Any future caller dispatching `implementer` should add these two instructions to the
+  per-step prompt explicitly rather than trusting the agent definition's current wording; updating
+  `implementer.md` itself to state this by default (not just working around it per-dispatch) is a
+  worthwhile follow-up outside this insights file's scope.
+
 ## Open Questions
 
 - **No agent currently traces a feature Spec's EARS acceptance criteria (`AC-N`) forward to
