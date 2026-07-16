@@ -80,6 +80,25 @@
   Also check whether the section's underlying facade/data layer (repo-intel, github adapter, etc.)
   is ALSO already built for the same reason — it was, both times.
 
+- **2026-07-16 addendum (PR Why + Risk Brief grounding): the "scaffolding exists, nothing wired"
+  pattern's unwired artifacts can themselves collide by name, and a second FeatureModelId default
+  was found wrong.** Auditing for `specs/SPEC-02-pr-why-risk-brief.md` turned up a `pr_brief` DB
+  table (`{pr_id PK, json jsonb}`, `server/src/db/schema/reviews.ts`) with zero writers/readers —
+  but this is a DIFFERENT pre-existing artifact from the `PrBrief` zod contract in
+  `contracts/brief.ts` (which composes `intent`/`blast`/`risks`/`history`); the two don't
+  correspond to each other, and neither corresponds to this new feature's own `Brief` type. Add
+  `risk_brief` (an unwired `FeatureModelId`) and the unrelated `WhyTimeline`/`contracts/why.ts`
+  git-blame "why" concept, and "brief"/"why"-named things in this repo now form a
+  four-way naming cluster (`PrBrief` contract, `pr_brief` table, `risk_brief` model id,
+  `WhyTimeline`/`why.ts`) that are NOT the same system. ⇒ Don't assume a "Brief"/"why"-named
+  artifact found by grep is the one relevant to whatever brief/why feature is being built — check
+  which exact one (table vs. contract vs. model id vs. unrelated feature) before reusing it.
+  Separately: `risk_brief`'s registered default is `openai/gpt-4.1`, NOT flash — same wrong-default
+  shape as `review_intent` (recorded above), now a SECOND confirmed instance. ⇒ When auditing any
+  unwired `FeatureModelId` as part of new-feature scaffolding, always check its registered default
+  needs correcting to a cheap/flash SKU — an existing registry entry existing is not evidence its
+  default is sane.
+
 - **The Planner subagent was renamed `.claude/agents/planner.md` → `.claude/agents/implementation-planner.md`
   (frontmatter `name: implementation-planner`) and its scope was tightened: it never authors or
   redefines product requirements/specs, only turns already-defined requirements into a build
@@ -336,7 +355,25 @@
   `SPEC-NN`'s `AC-N` list to what `implementation-planner`/`implementer` actually built or tested.
   (Surfaced 2026-07-14 while designing `.claude/agents/spec-creator.md`.)
 
+  **2026-07-16 partial resolution (not automatic — requires explicit instruction):** dispatching
+  `implementation-planner` for `specs/SPEC-02-pr-why-risk-brief.md` with an EXPLICIT dispatch-prompt
+  instruction to map AC-IDs into step test criteria worked — the resulting
+  `specs/plans/PLAN-02-pr-why-risk-brief.md` §3 does cite all 18 `AC-1`…`AC-18` against specific
+  steps' test criteria. So the mechanism is possible, but `implementation-planner`'s own default
+  behavior (per its agent definition) still does NOT do this unprompted — this remains a real gap
+  in the *default* pipeline, just no longer a hard blocker. ⇒ Any caller wanting AC-N traceability
+  in a plan must ask for it explicitly in the dispatch prompt, same as this session did, until
+  `implementation-planner.md` itself is updated to do it by default.
+
 - **`SPEC-NN` specs have no forward link to the Implementation Plan that realizes them** —
   `Supersedes` only links a spec backward to an older spec it replaces; nothing links a spec
   forward to the plan/PR that implements it, so tracing WHAT → HOW currently requires manually
   finding the matching plan. (Surfaced 2026-07-14 while designing `.claude/agents/spec-creator.md`.)
+
+  **2026-07-16 confirmation this is solved AT THE FILE level, just not automated:** the existing
+  `SPEC-01-project-context.md` ↔ `PLAN-01-project-context.md` pair already has this link (the
+  spec's `Implementation Plan:` header line points at the plan file) — and `PLAN-02-pr-why-risk-brief.md`
+  reproduced it correctly (updated `SPEC-02`'s header from "not yet planned" to the new plan's
+  path) when explicitly told to in the dispatch prompt, same caveat as the AC-N note above:
+  `implementation-planner` will do this if asked, but nothing forces it, and nothing checks
+  afterward that a spec's header actually got updated.
