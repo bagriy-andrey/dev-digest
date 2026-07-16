@@ -10,6 +10,17 @@ export const s = {
     display: "flex",
     flexDirection: "column",
     gap: 14,
+    maxHeight: 420,
+  } satisfies CSSProperties,
+  /** Read-only content only — scrolls on its own; `modelRow` (below, has an
+   *  absolutely-positioned dropdown) stays outside so it's never clipped. */
+  scrollArea: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    minHeight: 0,
+    overflowY: "auto",
+    overflowX: "hidden",
   } satisfies CSSProperties,
   empty: {
     fontSize: 14,

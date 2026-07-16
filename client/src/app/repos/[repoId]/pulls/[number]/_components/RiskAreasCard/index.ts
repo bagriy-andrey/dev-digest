@@ -1,0 +1,1 @@
+export { RiskAreasCard } from "./RiskAreasCard";

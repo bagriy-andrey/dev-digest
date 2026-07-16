@@ -178,6 +178,63 @@
   `activeTab`), not by editing `styles.ts`, since a plan step's file list may
   legitimately omit `styles.ts` from what a component tab is allowed to touch.
 
+- **2026-07-16: Overview tab redesigned to match the original PR-Brief mockup** —
+  `VerdictBanner` (existing, previously only mounted inside `ReviewRunAccordion` on the
+  Findings tab) is now ALSO mounted at the top of `PrBriefCard` via an optional
+  `latestReview` prop (computed in `page.tsx` from `runs[0]`, the newest `usePrReviews`
+  row — same "latest review" convention as the server's `pulls/routes.ts`). `IntentCard` +
+  a new `RiskAreasCard` (renders `brief.risks` as collapsible rows, severity icon +
+  clickable `file_refs` + chevron-revealed explanation) now sit in the LEFT column of a
+  new `OverviewTab` CSS grid (`s.grid`/`s.gridCol`), with `BlastRadiusCard` in the right
+  column; a new `ReviewFocusSection` renders `brief.review_focus` as its own full-width
+  section below the grid (one line per item: bullet + `MonoLink` + reason), instead of
+  being nested inside `PrBriefCard`. Three sibling components (`PrBriefCard`,
+  `RiskAreasCard`, `ReviewFocusSection`) now each independently call `usePrBrief(prId)` —
+  this is intentional, not a duplicated-fetch bug: TanStack Query dedups by `["pr-brief",
+  prId]` queryKey, so it's one real network call no matter how many components read it,
+  and keeps each component owning only the slice of `Brief` it renders (no prop drilling
+  of the whole `Brief` object through `OverviewTab`). AC-14 ("no cost/token/model figure
+  in the brief UI") still holds — `VerdictBanner` itself has no cost/token fields, so
+  merging it in doesn't reintroduce what AC-14 forbids.
+- **2026-07-16: fixed-height + internal scroll added to every Overview-tab card**
+  (`PrBriefCard`/`IntentCard`/`RiskAreasCard`/`BlastRadiusCard`/`ReviewFocusSection`, all
+  capped at `maxHeight: 420` + `overflowY: "auto"`) — this is the actual fix for the
+  "BlastRadiusCard has no cap" entry below; the 213-symbol PR that made the grid 8000px
+  tall now scrolls inside a 420px box instead (confirmed live: `document.querySelector('main').scrollHeight`
+  went from 8459 → 1894 on the same PR). Two non-obvious traps hit while doing this:
+  (1) **`IntentCard`'s model-picker (`SearchableSelect`) renders its dropdown via
+  `position: absolute` relative to its own wrapper — NOT a portal** (`vendor/ui/kit/
+  SearchableSelect.tsx`), so putting `overflow: auto` on an ancestor clips the open
+  dropdown the instant it needs to extend past the scrolled edge. Fix: split `IntentCard`'s
+  body into an inner `s.scrollArea` (intent text + in/out-scope, its own `overflowY:auto`
+  + `minHeight:0`) and leave `modelRow` OUTSIDE it, still inside the outer (non-scrolling,
+  just `maxHeight`-capped) `s.card` — a "scrollable middle, pinned footer" split. Any future
+  card that scrolls AND has a dropdown/popover inside must use this same split, not a single
+  `overflow:auto` wrapper. (2) **A long unbroken path (a `MonoLink`, e.g. a file path with no
+  spaces) inside a `flex-wrap: wrap` row doesn't wrap internally — it overflows the row**,
+  because a flex item's default `min-width: auto` floors it at its own content width
+  (browsers don't apply `overflow-wrap` line-breaking to a flex item until it's allowed to
+  shrink below that). Fixed at the ROOT — `vendor/ui/primitives/MonoLink.tsx` itself now sets
+  `overflowWrap: "anywhere"`, `wordBreak: "break-word"`, `whiteSpace: "normal"`, `maxWidth:
+  "100%"`, `textAlign: "left"` (the last because `<button>`'s UA default centers text, wrong
+  once it wraps to 2+ lines) — fixes every consumer at once, not just the Overview cards.
+  Still needed per-call-site: `minWidth: 0` on the immediate flex parent holding the
+  `MonoLink` (`RiskAreasCard`'s `fileRefs`, `BlastRadiusCard`'s `callerLine`,
+  `ReviewFocusSection`'s `item`) — the `MonoLink`-level fix alone isn't enough if its flex
+  ancestor still refuses to shrink.
+- **2026-07-16: `BlastRadiusCard`'s symbol list has no cap, and rows out the whole grid on a
+  large PR** — confirmed live (PR with 213 changed symbols / 89 callers): the card renders
+  every symbol as its own collapsible row with no "show more"/virtualization, so the right
+  grid column (`BlastRadiusCard`) ends up ~8000px tall while the left column
+  (`IntentCard`+`RiskAreasCard`) is ~1000px — the two-column Overview grid (see entry
+  above) loses all visual parity on any PR whose blast radius is large, even though it
+  looks correct on a small demo PR (this was NOT introduced by the 2026-07-16 grid change;
+  `BlastRadiusCard`'s own list rendering predates it and was already this way before —
+  just newly SIDE BY SIDE with a much shorter Intent column, which is what makes the
+  imbalance visible instead of just "one more long full-width card"). Not fixed — would
+  need `BlastRadiusCard` to cap/paginate/virtualize its own symbol list, out of scope for
+  a layout-parity fix.
+
 ## Open Questions
 
 - **RESOLVED 2026-07-09** — both gaps closed, see the matching Session Notes entry below

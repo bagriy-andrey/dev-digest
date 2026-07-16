@@ -57,37 +57,43 @@ export function IntentCard({ prId, repoId }: IntentCardProps) {
       </SectionLabel>
 
       <div style={s.card}>
-        {isLoading ? (
-          <div style={s.empty}>{t("intent.loading")}</div>
-        ) : !intent ? (
-          <div style={s.empty}>{t("intent.empty")}</div>
-        ) : (
-          <>
-            <p style={s.summary}>{intent.intent}</p>
-            {intent.in_scope.length > 0 && (
-              <div style={s.list}>
-                <div style={s.listLabel}>{t("intent.inScope")}</div>
-                <ul style={s.ul}>
-                  {intent.in_scope.map((item, i) => (
-                    <li key={i}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {intent.out_of_scope.length > 0 && (
-              <div style={s.list}>
-                <div style={s.listLabel}>{t("intent.outOfScope")}</div>
-                <ul style={s.ul}>
-                  {intent.out_of_scope.map((item, i) => (
-                    <li key={i}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </>
-        )}
+        {/* Scrollable read-only content only — the model picker below opens a
+           dropdown (`SearchableSelect`, absolutely positioned, not a portal)
+           that an `overflow` ancestor would clip, so it stays outside this
+           scroll region. */}
+        <div style={s.scrollArea}>
+          {isLoading ? (
+            <div style={s.empty}>{t("intent.loading")}</div>
+          ) : !intent ? (
+            <div style={s.empty}>{t("intent.empty")}</div>
+          ) : (
+            <>
+              <p style={s.summary}>{intent.intent}</p>
+              {intent.in_scope.length > 0 && (
+                <div style={s.list}>
+                  <div style={s.listLabel}>{t("intent.inScope")}</div>
+                  <ul style={s.ul}>
+                    {intent.in_scope.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {intent.out_of_scope.length > 0 && (
+                <div style={s.list}>
+                  <div style={s.listLabel}>{t("intent.outOfScope")}</div>
+                  <ul style={s.ul}>
+                    {intent.out_of_scope.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
 
-        {recalculate.isError && <div style={s.error}>{t("intent.recalculateError")}</div>}
+          {recalculate.isError && <div style={s.error}>{t("intent.recalculateError")}</div>}
+        </div>
 
         <div style={s.modelRow}>
           <FormField

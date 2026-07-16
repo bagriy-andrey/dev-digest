@@ -20,6 +20,15 @@ export function MonoLink({
     color: h ? "var(--accent-text)" : "var(--text-secondary)",
     textDecoration: h ? "underline" : "none",
     textUnderlineOffset: 2,
+    // A long file path is one unbroken "word" with no spaces — without this,
+    // it overflows its container instead of wrapping (and `<button>`'s UA
+    // default centers text, wrong once it wraps to multiple lines).
+    display: "inline-block",
+    maxWidth: "100%",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+    whiteSpace: "normal",
+    textAlign: "left",
   };
 
   if (href) {

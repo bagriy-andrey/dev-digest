@@ -2,6 +2,9 @@ import type { CSSProperties } from "react";
 
 /** Co-located styles for PrBriefCard (PR Why + Risk Brief summary). */
 export const s = {
+  verdictWrap: {
+    marginBottom: 14,
+  } satisfies CSSProperties,
   card: {
     border: "1px solid var(--border)",
     borderRadius: 8,
@@ -10,6 +13,9 @@ export const s = {
     display: "flex",
     flexDirection: "column",
     gap: 14,
+    maxHeight: 420,
+    overflowY: "auto",
+    overflowX: "hidden",
   } satisfies CSSProperties,
   empty: {
     fontSize: 14,
@@ -55,53 +61,4 @@ export const s = {
     textTransform: "uppercase",
     letterSpacing: "0.04em",
   }),
-  riskList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-  } satisfies CSSProperties,
-  riskItem: {
-    borderTop: "1px solid var(--border)",
-    paddingTop: 8,
-    display: "flex",
-    flexDirection: "column",
-    gap: 4,
-  } satisfies CSSProperties,
-  riskItemHead: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-  } satisfies CSSProperties,
-  riskTitle: {
-    fontSize: 13.5,
-    fontWeight: 600,
-    color: "var(--text-primary)",
-  } satisfies CSSProperties,
-  riskKind: {
-    fontSize: 11.5,
-    color: "var(--text-muted)",
-  } satisfies CSSProperties,
-  riskExplanation: {
-    margin: 0,
-    fontSize: 13,
-    color: "var(--text-secondary)",
-    lineHeight: 1.5,
-  } satisfies CSSProperties,
-  focusList: {
-    margin: 0,
-    padding: 0,
-    listStyle: "none",
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  } satisfies CSSProperties,
-  focusItem: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-  } satisfies CSSProperties,
-  focusReason: {
-    fontSize: 12.5,
-    color: "var(--text-muted)",
-  } satisfies CSSProperties,
 } as const;

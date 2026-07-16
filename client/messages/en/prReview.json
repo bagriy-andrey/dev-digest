@@ -108,6 +108,9 @@
     "openTrace": "Open run trace & logs",
     "deleteRun": "Delete run"
   },
+  "riskAreas": {
+    "label": "Risk Areas"
+  },
   "intent": {
     "label": "Intent",
     "recalculate": "Recalculate",

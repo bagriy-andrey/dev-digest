@@ -1,25 +1,44 @@
-/* PrBriefCard — shown at the top of the Overview tab, above IntentCard.
-   Reads the cached PR Why + Risk Brief (never computes it) and offers a
-   manual Generate/Regenerate action. Reads ONLY usePrBrief/useGenerateBrief
-   — does not touch VerdictBanner/IntentCard/BlastRadiusCard state (naming-
-   collision guardrail, AC-18). Renders no token/cost/model figure (AC-14 —
-   that data is server-log-only, never returned by the API). */
+/* PrBriefCard — shown at the top of the Overview tab. Reads the cached PR
+   Why + Risk Brief (never computes it) and offers a manual Generate/
+   Regenerate action. Reads ONLY usePrBrief/useGenerateBrief for its own
+   content — does not touch IntentCard/BlastRadiusCard state (naming-
+   collision guardrail, AC-18). Renders no token/cost/model figure for the
+   BRIEF itself (AC-14 — that data is server-log-only, never returned by the
+   API); the optional `latestReview` prop instead surfaces the most recent
+   review RUN's verdict/score via the existing VerdictBanner, so the top of
+   Overview reads as one unified "PR Brief" panel (verdict + narrative). Risk
+   Areas (`brief.risks`) and Review Focus (`brief.review_focus`) render in
+   their own sections elsewhere on Overview (RiskAreasCard/ReviewFocusSection)
+   — not nested in this card. */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Button, SectionLabel, MonoLink, Icon } from "@devdigest/ui";
+import { Button, SectionLabel, Icon } from "@devdigest/ui";
+import type { Verdict } from "@devdigest/shared";
 import { usePrBrief, useGenerateBrief } from "@/lib/hooks";
+import { VerdictBanner } from "../VerdictBanner";
 import { RISK_LEVEL_STYLE } from "./constants";
 import { s } from "./styles";
+
+export interface LatestReviewSummary {
+  verdict: Verdict;
+  summary: string | null;
+  score: number | null;
+  findingsCount: number;
+  blockers: number;
+  agentName?: string | null;
+}
 
 interface PrBriefCardProps {
   prId: string | null;
   repoId: string;
-  onOpenInDiff: (file: string, line: number | null) => void;
+  /** Most recent review run (any agent) — renders as a VerdictBanner above
+   *  the brief text. `null` when no review has completed yet. */
+  latestReview?: LatestReviewSummary | null;
 }
 
-export function PrBriefCard({ prId, onOpenInDiff }: PrBriefCardProps) {
+export function PrBriefCard({ prId, latestReview }: PrBriefCardProps) {
   const t = useTranslations("prReview");
   const { data: brief, isLoading } = usePrBrief(prId);
   const generate = useGenerateBrief(prId);
@@ -50,6 +69,19 @@ export function PrBriefCard({ prId, onOpenInDiff }: PrBriefCardProps) {
       >
         {t("brief.label")}
       </SectionLabel>
+
+      {latestReview && (
+        <div style={s.verdictWrap}>
+          <VerdictBanner
+            verdict={latestReview.verdict}
+            summary={latestReview.summary}
+            score={latestReview.score}
+            findingsCount={latestReview.findingsCount}
+            blockers={latestReview.blockers}
+            agentName={latestReview.agentName}
+          />
+        </div>
+      )}
 
       <div style={s.card}>
         {isLoading ? (
@@ -83,45 +115,6 @@ export function PrBriefCard({ prId, onOpenInDiff }: PrBriefCardProps) {
                 })()}
               </div>
             </div>
-
-            {brief.risks.length > 0 && (
-              <div style={s.section}>
-                <div style={s.sectionLabel}>{t("brief.risks")}</div>
-                <div style={s.riskList}>
-                  {brief.risks.map((risk, i) => {
-                    const level = RISK_LEVEL_STYLE[risk.severity];
-                    const RiskIcon = Icon[level.icon];
-                    return (
-                      <div key={`${risk.kind}-${i}`} style={s.riskItem}>
-                        <div style={s.riskItemHead}>
-                          <span style={s.riskLevelChip(level.color, level.bg)}>
-                            <RiskIcon size={12.5} />
-                            {t(`brief.riskLevels.${risk.severity}`)}
-                          </span>
-                          <span style={s.riskTitle}>{risk.title}</span>
-                          <span style={s.riskKind}>{risk.kind}</span>
-                        </div>
-                        <p style={s.riskExplanation}>{risk.explanation}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {brief.review_focus.length > 0 && (
-              <div style={s.section}>
-                <div style={s.sectionLabel}>{t("brief.reviewFocus")}</div>
-                <ul style={s.focusList}>
-                  {brief.review_focus.map((item, i) => (
-                    <li key={`${item.file}-${i}`} style={s.focusItem}>
-                      <MonoLink onClick={() => onOpenInDiff(item.file, null)}>{item.file}</MonoLink>
-                      <span style={s.focusReason}>{item.reason}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </>
         )}
 
