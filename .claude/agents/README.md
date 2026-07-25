@@ -11,12 +11,41 @@ agents.
 | Agent | Description | Tools |
 |-------|--------------|-------|
 | [researcher](researcher.md) | Read-only research agent — investigates the codebase, the web, or both, and reports back cited findings. Never modifies anything. | `Read, Grep, Glob, WebSearch, WebFetch` |
-| [planner](planner.md) | Produces a structured Development Plan (file-by-file breakdown, execution order, definition of done) for a feature request, respecting this repo's package boundaries. Writes only the plan document. | `Read, Grep, Glob, Bash, Write` |
+| [spec-creator](spec-creator.md) | Writes Spec-Driven-Development feature specifications — Problem/Goals/EARS acceptance criteria/Edge cases/Workflow & Contracts — for a feature that isn't built yet. Restricted to `SPEC-NN-<slug>.md` files inside a package's `specs/` (or root `specs/` for cross-package features). Reads only the `insights.md` of modules the feature touches, may dispatch parallel `researcher` subagents for facts it can't verify from the repo, and runs a final self-check before returning. Never writes code or an Implementation Plan; hands off to `implementation-planner`. | `Read, Grep, Glob, Write, Edit, Agent` (`disallowedTools: Bash`) |
+| [implementation-planner](implementation-planner.md) | Produces a structured Implementation Plan (file-by-file breakdown, execution order, definition of done) for a feature request that is already specified/scoped, respecting this repo's package boundaries. Never authors requirements — starts from an existing spec (or asks for one). Writes only the plan document. | `Read, Grep, Glob, Bash, Write` |
 | [implementer](implementer.md) | Implements ONE execution step of a Planner-produced plan — backend or frontend, whichever the step touches. Meant to be launched multiple times in parallel, one instance per non-overlapping step. | `Read, Write, Edit, Bash, Grep, Glob` |
 | [test-writer](test-writer.md) | Writes tests for existing DevDigest code — both client/ (React/Next.js, vitest + jsdom) and server/ (Fastify, vitest + testcontainers). Use when code has been written and needs tests, not when new features need designing or implementing. Runs the tests it writes and confirms they pass. Operates in the current working tree so it can see just-implemented, uncommitted code. | `Read, Write, Edit, Bash, Grep, Glob` |
 | [architecture-reviewer](architecture-reviewer.md) | Read-only architecture reviewer for DevDigest. Checks onion-architecture layering (server/reviewer-core), UI architecture placement (client/), and cross-package boundary integrity (vendored @devdigest/shared / @devdigest/ui drift, package-boundary violations). Emits CRITICAL/WARNING/INFO findings and a BLOCKED/PASS verdict. Never modifies files. Use for an architecture pass, not a full pre-PR gate (that's the pr-self-review skill) and not requirement-coverage checking (that's plan-verifier). | `Read, Grep, Glob, Bash` (`disallowedTools: Write, Edit`) |
 | [plan-verifier](plan-verifier.md) | Verifies a Development Plan (a specs/*.md file) was actually implemented — requirement coverage and traceability, not code quality or architecture (use architecture-reviewer for that). Cross-checks each plan step, test criterion, and Definition-of-Done item against the real git diff and by actually running the plan's declared test commands. Read-only: returns a per-requirement checklist directly, writes no report file. | `Read, Grep, Glob, Bash` (`disallowedTools: Write, Edit`) |
 | [doc-writer](doc-writer.md) | Writes human-readable documentation for DevDigest. Three modes: (1) document already-implemented functionality by reading the code, (2) turn a Development Plan (specs/*.md) into prose docs, (3) turn arbitrary supplied material into docs with diagrams. Writes to docs/features/ (see docs/features/README.md for the convention). Every doc it produces states which mode/source it came from. Use for documentation, not for planning or implementing. | `Read, Grep, Glob, Bash, Write` |
+
+## Recommended pipeline order
+
+The full Spec-Driven-Development pipeline runs these agents in sequence:
+`spec-creator` → `implementation-planner` → `implementer` (one instance per
+non-overlapping plan step, run in parallel per the plan's declared execution
+mode) → `plan-verifier` (pass 1) + `architecture-reviewer` → `test-writer` →
+`plan-verifier` (pass 2) → the user-run `pr-self-review` skill.
+
+```
+1. spec-creator            → SPEC-NN-*.md (user reviews/approves)
+2. implementation-planner  → Implementation Plan (asks multi-agent vs single-agent)
+3. implementer(s)          → new chat, parallel per non-overlapping step
+4. plan-verifier (pass 1)  → right after implementer, in parallel with:
+   architecture-reviewer   → independent of tests, can run alongside pass 1
+5. test-writer             → targeted at gaps plan-verifier pass 1 found
+6. plan-verifier (pass 2)  → final confirmation, now that gaps are filled
+7. pr-self-review (skill)  → final manual gate before opening a PR
+```
+
+**Why `plan-verifier` runs before `test-writer`, not after:** `plan-verifier`
+checks the plan's own declared test criteria against the real `git diff` and
+by actually running commands — it doesn't need `test-writer` to have run
+first. Running it immediately after `implementer` is the cheapest gate and
+produces a precise gap list for `test-writer` to target, instead of
+`test-writer` guessing at coverage. `architecture-reviewer` only judges
+layering/boundaries, not tests, so it's independent of both and can run in
+parallel with `plan-verifier`'s first pass.
 
 ## Agents vs Skills
 

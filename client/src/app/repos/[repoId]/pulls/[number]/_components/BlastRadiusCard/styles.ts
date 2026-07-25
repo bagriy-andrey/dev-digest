@@ -10,6 +10,9 @@ export const s = {
     display: "flex",
     flexDirection: "column",
     gap: 12,
+    maxHeight: 420,
+    overflowY: "auto",
+    overflowX: "hidden",
   } satisfies CSSProperties,
   empty: {
     fontSize: 14,
@@ -106,6 +109,7 @@ export const s = {
     display: "flex",
     alignItems: "center",
     gap: 6,
+    minWidth: 0,
   } satisfies CSSProperties,
   callerIcon: {
     color: "var(--text-muted)",

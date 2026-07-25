@@ -16,9 +16,43 @@ export interface JsonSchema {
   name: string;
 }
 
+/**
+ * Inline every `$ref: "#/definitions/…"` pointer and drop the top-level
+ * `definitions` block. `zodResponseFormat`'s converter factors out a
+ * sub-schema into `definitions` whenever the SAME zod object is referenced
+ * from two places in one schema (e.g. an enum reused by two sibling fields)
+ * — valid JSON Schema, and fine for OpenAI/Anthropic, but Google's Gemini
+ * structured-output schema (reached via the OpenRouter passthrough) has no
+ * `$ref`/`definitions` support and 400s with "reference to undefined schema"
+ * on any schema built this way. Since every contract's underlying shape has
+ * no genuine cycles, a single non-cyclic inline pass makes the schema
+ * self-contained for every provider without changing what it validates.
+ */
+function dereference(node: unknown, defs: Record<string, unknown>, seen: readonly string[] = []): unknown {
+  if (Array.isArray(node)) return node.map((n) => dereference(n, defs, seen));
+  if (node && typeof node === 'object') {
+    const obj = node as Record<string, unknown>;
+    const ref = obj.$ref;
+    if (typeof ref === 'string' && ref.startsWith('#/definitions/')) {
+      const key = ref.slice('#/definitions/'.length);
+      if (seen.includes(key) || !(key in defs)) return obj; // cyclic/unresolvable — leave as-is
+      return dereference(defs[key], defs, [...seen, key]);
+    }
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (k === 'definitions' || k === '$defs') continue;
+      out[k] = dereference(v, defs, seen);
+    }
+    return out;
+  }
+  return node;
+}
+
 export function toJsonSchema<T>(schema: z.ZodType<T>, name: string): JsonSchema {
   const rf = zodResponseFormat(schema as z.ZodTypeAny, name);
-  return { schema: rf.json_schema.schema as Record<string, unknown>, name };
+  const raw = rf.json_schema.schema as Record<string, unknown>;
+  const defs = (raw.definitions ?? raw.$defs ?? {}) as Record<string, unknown>;
+  return { schema: dereference(raw, defs) as Record<string, unknown>, name };
 }
 
 /** Best-effort extraction of a JSON object/array from a model's text output. */

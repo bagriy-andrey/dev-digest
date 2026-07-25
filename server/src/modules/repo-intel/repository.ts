@@ -555,6 +555,21 @@ export class RepoIntelRepository {
     }));
   }
 
+  /** All persisted per-file facts for the repo (onboarding repo-wide routes). */
+  async getAllFileFacts(repoId: string): Promise<{ endpoints: string[]; crons: string[] }[]> {
+    const rows = await this.db
+      .select({
+        endpoints: t.fileFacts.endpoints,
+        crons: t.fileFacts.crons,
+      })
+      .from(t.fileFacts)
+      .where(eq(t.fileFacts.repoId, repoId));
+    return rows.map((r) => ({
+      endpoints: (r.endpoints as string[]) ?? [],
+      crons: (r.crons as string[]) ?? [],
+    }));
+  }
+
   /** Repo-map cache read by PK. */
   async getRepoMapCache(
     repoId: string,

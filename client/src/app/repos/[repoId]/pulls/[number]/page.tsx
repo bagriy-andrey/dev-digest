@@ -87,6 +87,23 @@ export default function PRDetailPage() {
   const lethalTrifecta = allFindings.filter((f) => f.kind === "lethal_trifecta");
   const findingsCount = allFindings.length;
 
+  // Most recent review run (any agent) — surfaced at the top of Overview via
+  // VerdictBanner, same "latest review" convention used elsewhere (newest-
+  // first `reviews`, take the first row). `blockers` mirrors ReviewRunAccordion's
+  // own count so the two stay in agreement.
+  const latestReview = runs[0] ?? null;
+  const latestReviewSummary =
+    latestReview && latestReview.verdict
+      ? {
+          verdict: latestReview.verdict,
+          summary: latestReview.summary,
+          score: latestReview.score,
+          findingsCount: latestReview.findings.length,
+          blockers: latestReview.findings.filter((f) => f.severity === "CRITICAL" && !f.dismissed_at).length,
+          agentName: latestReview.agent_name,
+        }
+      : null;
+
   const repoName = activeRepo?.full_name ?? repoId;
   // The real "owner/repo" (null until the repo is loaded) — used to build
   // github.com deep-links for the header and finding file references.
@@ -146,7 +163,13 @@ export default function PRDetailPage() {
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
         {tab === "overview" && (
-          <OverviewTab prBody={pr.body} prId={prId} repoId={repoId} onOpenInDiff={openInDiff} />
+          <OverviewTab
+            prBody={pr.body}
+            prId={prId}
+            repoId={repoId}
+            onOpenInDiff={openInDiff}
+            latestReview={latestReviewSummary}
+          />
         )}
 
         {tab === "findings" && (

@@ -1,0 +1,1 @@
+export { IndexFooter } from "./IndexFooter";

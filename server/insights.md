@@ -212,6 +212,8 @@
 - When a prior feature (e.g. the shipped `blast_summary` `FeatureModelId`) exists only as UNCOMMITTED work in the main checkout (see the worktree-isolation entry above), syncing just the feature's own module directory into a fresh worktree is NOT enough — its transitive registration in `vendor/shared/contracts/platform.ts` (`FEATURE_MODELS`/`FeatureModelId` union) is a separate uncommitted diff and typecheck fails at the *consumer* call site (`blast/service.ts` calling `resolveFeatureModelForRepo(..., 'blast_summary')`) with a union-type error that doesn't mention `platform.ts` at all. Always `diff <main>/path <worktree>/path` on the vendored contract files too, not just the feature's own module files, before assuming a worktree sync is complete.
 - Adding a required field to a widely-shared vendored contract (e.g. `prior_prs` on `BlastRadius`) can break test fixtures OUTSIDE the module the plan calls out. `server/test/contracts.test.ts` is a generic, cross-cutting fixture-round-trip test (parses hardcoded literals for every `PrBrief` building block in one file) — it broke on the same `BlastRadius.parse(...)` requirement the plan's spec correctly flagged for `blast/helpers.test.ts` but didn't mention for this file. Before adding a required field to a shared contract, grep the WHOLE repo for `<Contract>.parse(` / hardcoded literal objects of that shape, not just the module-adjacent test file — a plan's file list can miss a shared fixture test that happens to hardcode the same contract.
 
+- **`SimpleGitClient` (`adapters/git/simple-git.ts`) is architecturally a strict READ-ONLY mirror — there is no write path at all.** `GitClient` exposes only `clone/fetch/diff/blame/log/readFile`; there is no `writeFile`/commit/push method anywhere in the interface. `sync()` (`simple-git.ts:78-85`) advances the clone with `git fetch` + `git reset --hard origin/<branch>`, with an explicit code comment that this is "safe here because we never commit to or run code from the clone." ⇒ Any future feature that tempts an "edit this file from the UI and save it" affordance on repo content (e.g. a spec/doc editor) CANNOT persist that edit by writing into the clone on disk — the next `sync()`/resync job will silently `reset --hard` it away with no error, no warning, and no trace. Real persistence needs either a DB-side override table (content never touches the git clone) or genuine git write-back (commit + push, its own much bigger feature: branch/PR strategy, a write-scoped `GITHUB_TOKEN`) — there is no cheap middle ground. Found while scoping the Project Context feature's Edit tab (`server/specs/SPEC-01-project-context.md`); resolved there by dropping Edit entirely (view-only) rather than building either alternative.
+
 ## Tool & Library Notes
 
 - In this sandbox environment, `testcontainers` cannot start a Postgres container even though
@@ -237,6 +239,18 @@
   dependency files to confirm the delta is exactly the prior step's declared output (nothing
   extra), then copy just those files into the worktree before starting your own step — don't
   redesign schema you were told is already done.
+- A DIFFERENT variant of the above (2026-07-15, SPEC-01-onboarding step 2): a prior step CAN be
+  fully committed on the feature branch (e.g. `c0fa6ee` "Integrate step 1: ...") while the current
+  worktree's own branch tip is still an ANCESTOR of it (`git log -1` shows an older commit, and
+  `git merge-base --is-ancestor <mine> <expected>` confirms it) — this happens when the worktree
+  was created before the prior step's integration commit landed on the shared branch, not because
+  anything is uncommitted. Diagnostic: `git merge-base --is-ancestor <worktree-HEAD> <expected-sha>`
+  succeeding (not the reverse) means it's safe to fast-forward. Fix, when `git status` is clean and
+  the worktree has no commits of its own beyond the stale tip: `git merge --ff-only <expected-sha>`
+  — a plain fast-forward, no rebase/merge-commit needed, since there's no divergent local history
+  to reconcile. Always verify with `git status`/`git log --oneline -1` first that the worktree truly
+  has zero unique commits before doing this; if it did, `--ff-only` would simply refuse and a real
+  rebase/merge decision would be needed instead.
 - The `...(cond ? { field } : {})` conditional-spread pattern used to pass optional prompt
   fields to `reviewPullRequest(...)` in `run-executor.ts` bypasses TypeScript's excess-property
   check: `pnpm typecheck` stays green even if `reviewer-core`'s `ReviewInput` doesn't yet declare
@@ -321,6 +335,123 @@
   PR (`bagriy-andrey/ai-stock-app` #5) confirmed `route_symbols` now populates correctly for all
   3 PR-relevant controllers post-full-reindex, but `impactedEndpoints` on that specific PR is
   still empty because of the separate `file_edges` gap, not this fix.
+
+- 2026-07-14: Project Context feature spec written (`server/specs/SPEC-01-project-context.md`,
+  L05, cross-package server+client+reviewer-core). Audited existing scaffold first, same "already
+  built, nothing wired" shape as `review_intent`/`SmartDiff` above: `reviewer-core`'s
+  `assemblePrompt` already has a working `specs?: string[]` slot producing a `wrapUntrusted(...)`
+  `## Project context` block (`prompt.ts:101-104,146`); `PromptAssembly.specs` and
+  `RunTrace.specs_read` already exist in the shared contract (`trace.ts:43,89`); a `SpecFile`
+  contract already exists (`platform.ts:278`); client hooks `useContextFiles`/`useReindexContext`
+  already call not-yet-built routes (`hooks/core.ts:122-137`). `run-executor.ts` is the actual gap
+  — it never passes `specs` and hardcodes `specs_read: []` (`run-executor.ts:254`), so most of this
+  feature is wiring, not new engine work. Also found (and will need fixing to match this feature's
+  required block order): `assemblePrompt` currently renders `## Repo skeleton` BEFORE
+  `## Project context`, deliberately ("model sees structure first", `prompt.ts:50-53,143-146`) —
+  the spec requires flipping that relative order. Genuinely net-new: an attachment-storage home
+  (no generic `metadata` column exists on `agents` or a skills table today) and a real per-block
+  token count in the trace (existing `tokens_in`/`tokens_out` are whole-prompt only). A dead
+  RAG/embedding scaffold also exists (`code_chunks` table with `embedding vector(1536)`, an
+  `'embedding'` `IndexStatus` phase, gated OpenAI `embed()` behind `embeddingsEnabled` default OFF)
+  — explicitly kept OUT of this feature's footer-stats requirement to preserve "zero new LLM
+  calls"; don't wire it in when implementing SPEC-01's "Indexed/chunks" footer, that's a
+  deterministic doc/heading count, not embeddings. No code written yet.
+
+- 2026-07-15: Implementation Plan for SPEC-01 written (`server/specs/SPEC-01-project-context-plan.md`,
+  9 steps, single-agent execution). Confirmed the client run-trace screen (AC-21/AC-22) needs
+  **zero new client code**: `client/src/app/repos/[repoId]/pulls/[number]/_components/RunTraceDrawer/_components/TraceBody/TraceBody.tsx:39-51,85-87`
+  already renders `trace.specs_read` and `prompt_assembly.specs` — those fields are only ever
+  empty today because `run-executor.ts` hardcodes `specs_read: []` and never passes `specs`
+  (per the 2026-07-14 entry above). ⇒ For SPEC-01, "Specs read" + the expandable "Project
+  context — attached specs" trace block are satisfied purely by the server starting to populate
+  data the UI already knows how to display — don't plan any `RunTraceDrawer`/`TraceBody` work for
+  this feature. Also newly confirmed net-new pieces (not covered by the 07-14 audit): two
+  path-only link tables (`agent_context_docs`, `skill_context_docs`, no `repo_id` — attachment is
+  not repo-scoped) + a `repo_context_index` scan-state table, and discovery uses Node 22's
+  `fs.readdir({ recursive: true })` (no new glob dependency needed).
+
+- 2026-07-15: `ContextService.resolveEffectiveSpecs`'s `log?: Logger` parameter (`modules/context/service.ts`)
+  uses the Fastify `req.log`-style signature (`info: (obj: unknown, msg?: string) => void`, plus a
+  required `warn`), NOT `RunLogger`'s shape (`info(msg: string, data?: unknown)`, no `warn` at all —
+  only `info`/`tool`/`result`/`error`). Passing a `RunLogger`/`runLog.forRun(...)` instance straight
+  into `resolveEffectiveSpecs` as its `log` arg does NOT typecheck (missing `warn`, and the two
+  `info` signatures are parameter-order-incompatible, not just differently named) — this bit wiring
+  run-executor.ts's Project Context injection (SPEC-01 step 5) to `runOneAgent`. Fix: build a tiny
+  inline adapter object `{ info: (obj, msg) => runLog.info(msg ?? '', obj), warn: (obj, msg) =>
+  runLog.info(msg ?? '', obj), error: (obj, msg) => runLog.error(msg ?? '', obj) }` (mapping `warn` →
+  an `info`-level RunLog event, since `RunEventKind` has no `'warn'` variant) and pass that instead.
+  ⇒ Any future service accepting a pino-shaped `Logger` that needs to be driven from `run-executor.ts`
+  needs this same adapter — `RunLogger` is not a `PinoLike`/pino-shaped logger despite superficially
+  looking like one (both take an optional second arg).
+- 2026-07-15: No hermetic test file previously exercised `ReviewRunExecutor.runOneAgent`'s trace-building
+  (only `test/reviews.it.test.ts`, real-PG, and `test/agent-runner.test.ts`, which only covers the
+  extracted `runAgentReview` helper). Testing `runOneAgent` hermetically requires mocking `ReviewRepository`
+  (cast an object literal `as unknown as ReviewRepository`, same pattern as the `agentsRepo` insight
+  above) AND `container.git.diff` (otherwise `loadDiff` falls through to `repo.getPrFiles`, which isn't
+  mocked, and every run in the test fails with "repo.getPrFiles is not a function" before reaching the
+  agent loop at all). Since `ContextService` is `new`'d directly inside `run-executor.ts` (not
+  container-injected), asserting its output flows into the trace needs `vi.mock('../src/modules/context/service.js', ...)`
+  at module scope (imported before `run-executor.ts` itself, via a dynamic `await import(...)` after the
+  `vi.mock` call) — this repo had zero prior `vi.mock` usage anywhere in `server/test/`, everyone else
+  uses container-override object literals, but that pattern only works for container-resolved deps, not
+  for a class a module `new`s up itself. New file: `test/run-executor.test.ts`.
+
+- 2026-07-15: Implemented `modules/onboarding/` (SPEC-01-onboarding-generator step 3 —
+  `constants`/`repository`/`service`/`routes`, registered in `modules/index.ts`). Key
+  finding: `OnboardingService.generate()` can be tested hermetically end-to-end (single-
+  LLM-call assertion, AC-5/AC-8/AC-9 wiring) WITHOUT a real DB by combining two existing
+  patterns rather than inventing a new one — (1) `RepoRepository` (from `../repos/
+  repository.js`) is imported directly, cross-module, exactly like `ContextService`
+  already does (an accepted exception to the "cross-cutting repos hang off the
+  container" rule for this specific shared repo, not just `agentsRepo`/`reviewRepo`);
+  (2) after `new OnboardingService(container)`, both `svc.repo` (`OnboardingRepository`)
+  AND `svc.repos` (`RepoRepository`) are overwritten post-construction with stub object
+  literals, the exact same trick `test/repo-intel-facade-degraded.test.ts` uses for
+  `RepoIntelService.repo`. This avoids needing a fake drizzle query-builder chain for
+  everything EXCEPT `resolveFeatureModel`, which still reads `container.db` directly
+  (`getFeatureModelOverride`'s `select({...}).from(t.settings).where(...)`) — that one
+  call site can't be bypassed by overriding a repo field, so the test container's `db`
+  must still provide a minimal `{ select: () => ({ from: () => ({ where: async () => [] }) }) }`
+  chain (returning no override rows) even though nothing else in the pipeline touches
+  `container.db` directly. ⇒ For any future single-LLM-call module service that also
+  calls `resolveFeatureModel`, hermetic testing needs this same minimal fake `db`
+  regardless of how thoroughly the module's own repositories are stubbed out.
+- 2026-07-15: The AC-9 "drop hallucinated `links[].path`" backstop needs a "known paths"
+  set built from ALL of this generation's gathered facts, but `getRepoMap(repoId).text`
+  (the repo-map skeleton) has no clean parseable list of paths — it's a formatted tree
+  string, not an array. `buildKnownPaths` (`modules/onboarding/service.ts`) handles this
+  with a best-effort regex extraction (`/[\w.\-/]+\.[A-Za-z0-9]+/g` — anything with a
+  file-extension-shaped suffix) over the raw text, unioned with the exact manifest
+  filenames used, `getTopFilesByRank`'s paths, and `getCriticalPaths`' flattened chains.
+  This is deliberately lossy/best-effort (a link to a real file the regex fails to spot
+  in the tree text gets dropped too) but errs toward the spec's stated priority — AC-9
+  cares about never rendering an INVENTED path, not about maximizing recall of real ones.
+
+- 2026-07-16: Implemented `modules/brief/` (SPEC-02 step 3 — `constants`/
+  `helpers`/`service`/`routes`, registered in `modules/index.ts`). Two
+  findings: (1) `MockLLMProvider.completeStructured` (`adapters/mocks.ts`)
+  self-validates its configured fixture against the REQUEST's own `req.schema`
+  before returning (`schema.safeParse(fixture)`, throwing if it fails) — so
+  you CANNOT use the normal `new MockLLMProvider('openai', { structured: {...} })`
+  constructor to simulate a service receiving an INVALID structured response
+  (e.g. to test an AC-8-style "don't persist on parse failure" path); the mock
+  itself refuses to hand back non-conforming data. The working pattern (also
+  used by `onboarding.it.test.ts`'s LLM-failure test, but for a REJECTION, not
+  a malformed-but-resolved response) is to directly overwrite the instance
+  method after construction: `llm.completeStructured = vi.fn().mockResolvedValue({ data: {...garbage}, model, tokensIn, tokensOut, costUsd, raw, attempts })`,
+  bypassing the mock's own schema gate entirely. (2) A service that news-up's
+  MULTIPLE sibling services in its constructor (mirroring `BriefService`
+  composing `BlastService`/`SmartDiffService`/`ContextService` alongside its
+  own `ReviewRepository`, all only wrapping `container.db`) can be hermetically
+  tested by overriding EACH sibling-service instance field post-construction
+  with its own minimal stub object literal (`(svc as unknown as { blast: {...} }).blast = { get: async () => ... }`,
+  one per field) — same "overwrite post-construction" trick as `onboarding`'s
+  `svc.repo`/`svc.repos`, just applied to N fields instead of 2. This only
+  works if the service STORES each sibling as an instance field rather than
+  `new`-ing it up inline inside the method body — worth keeping in mind when a
+  plan's pseudocode shows an inline `new BlastService(this.container).get(...)`
+  one-liner: promoting it to a constructor-assigned field costs nothing at
+  runtime and is what makes the service testable without a real DB.
 
 ## Open Questions
 

@@ -36,6 +36,10 @@ function buildDegradedService(opts: {
     getCachedSymbols: async () => [],
     getCachedSymbolsForFiles: async () => [],
     getCachedReferencesTo: async () => [],
+    getAllFileFacts: async () => [
+      { endpoints: ['GET /a', 'GET /a'], crons: [] },
+      { endpoints: ['POST /b'], crons: [] },
+    ],
   };
   return svc;
 }
@@ -87,13 +91,14 @@ describe('RepoIntel facade — degraded contract (flag off)', () => {
     expect(map.degraded).toBe(true);
   });
 
-  it('getFileRank / getSymbolsInFiles / getConventionSamples / getTopFilesByRank / getCriticalPaths → []', async () => {
+  it('getFileRank / getSymbolsInFiles / getConventionSamples / getTopFilesByRank / getCriticalPaths / getRepoEndpoints → []', async () => {
     const svc = buildDegradedService({ flag: false });
     await expect(svc.getFileRank('r1', ['a.ts'])).resolves.toEqual([]);
     await expect(svc.getSymbolsInFiles('r1', ['a.ts'])).resolves.toEqual([]);
     await expect(svc.getConventionSamples('r1', 12)).resolves.toEqual([]);
     await expect(svc.getTopFilesByRank('r1', 7)).resolves.toEqual([]);
     await expect(svc.getCriticalPaths('r1')).resolves.toEqual([]);
+    await expect(svc.getRepoEndpoints('r1')).resolves.toEqual([]);
   });
 
   it('indexRepo / refreshIndex → degraded T1 skeleton (never throws)', async () => {
@@ -121,5 +126,11 @@ describe('RepoIntel facade — degraded contract (flag on, but no data)', () => 
   it('getCallerSignatures with empty changedFiles → []', async () => {
     const svc = buildDegradedService({ flag: true, basics: { id: 'r1', owner: 'a', name: 'b', clonePath: '/tmp' } });
     await expect(svc.getCallerSignatures('r1', [])).resolves.toEqual([]);
+  });
+
+  it('getRepoEndpoints returns a deduped union across every file_facts row when enabled', async () => {
+    const svc = buildDegradedService({ flag: true, basics: { id: 'r1', owner: 'a', name: 'b', clonePath: '/tmp' } });
+    const endpoints = await svc.getRepoEndpoints('r1');
+    expect(endpoints.sort()).toEqual(['GET /a', 'POST /b']);
   });
 });

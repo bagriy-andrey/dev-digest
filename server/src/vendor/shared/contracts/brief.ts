@@ -69,6 +69,19 @@ export const Risks = z.object({
 });
 export type Risks = z.infer<typeof Risks>;
 
+// ---- PR Why + Risk Brief ----
+export const ReviewFocusItem = z.object({ file: z.string(), reason: z.string() });
+export type ReviewFocusItem = z.infer<typeof ReviewFocusItem>;
+
+export const Brief = z.object({
+  what: z.string(),
+  why: z.string(),
+  risk_level: RiskSeverity, // reused verbatim (AC-6)
+  risks: z.array(Risk), // reused verbatim (AC-6)
+  review_focus: z.array(ReviewFocusItem), // (AC-7)
+});
+export type Brief = z.infer<typeof Brief>;
+
 // ---- PR History ----
 export const PrHistoryItem = z.object({
   pr_number: z.number().int(),

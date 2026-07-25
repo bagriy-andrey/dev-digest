@@ -46,6 +46,13 @@ export const Onboarding = z.object({
 });
 export type Onboarding = z.infer<typeof Onboarding>;
 
+export const OnboardingDoc = z.object({
+  onboarding: Onboarding.nullable(), // null = never generated (AC-17 empty state)
+  source_sha: z.string().nullable(), // generation-time index SHA (AC-14 staleness compare)
+  generated_at: z.string().nullable(), // ISO timestamp
+});
+export type OnboardingDoc = z.infer<typeof OnboardingDoc>;
+
 // ---- Eval ----
 export const EvalPerTrace = z.object({
   name: z.string(),

@@ -32,10 +32,20 @@ export type {
   PrStatus,
   SpecFile,
   IndexStatus,
+  ContextDoc,
+  ContextIndexStatus,
+  ContextAttachment,
+  ContextFileContent,
 } from "@devdigest/shared";
 
 export type { Review, Finding, Severity, Verdict } from "@devdigest/shared";
-export type { PrBrief, SmartDiff, Intent, BlastRadius } from "@devdigest/shared";
+export type { PrBrief, SmartDiff, Intent, BlastRadius, Brief, ReviewFocusItem } from "@devdigest/shared";
+export type {
+  Onboarding,
+  OnboardingSection,
+  OnboardingLink,
+  OnboardingDoc,
+} from "@devdigest/shared";
 export type { Skill, SkillType, SkillSource, AgentSkillLink } from "@devdigest/shared";
 
 /**

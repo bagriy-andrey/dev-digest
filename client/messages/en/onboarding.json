@@ -13,5 +13,11 @@
   },
   "loadError": {
     "title": "Couldn’t load the onboarding tour"
-  }
+  },
+  "stale": {
+    "label": "Stale",
+    "body": "The repo has changed since this tour was generated — Regenerate to bring it up to date."
+  },
+  "copyLink": "Copy link",
+  "copied": "Copied!"
 }

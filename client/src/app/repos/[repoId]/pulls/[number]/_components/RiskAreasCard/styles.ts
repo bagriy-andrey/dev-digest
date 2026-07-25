@@ -1,0 +1,72 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for RiskAreasCard (compact collapsible risk rows). */
+export const s = {
+  card: {
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    background: "var(--bg-elevated)",
+    padding: 14,
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    maxHeight: 420,
+    overflowY: "auto",
+    overflowX: "hidden",
+  } satisfies CSSProperties,
+  item: {
+    borderTop: "1px solid var(--border)",
+    paddingTop: 8,
+    paddingBottom: 4,
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  } satisfies CSSProperties,
+  itemHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    textAlign: "left",
+  } satisfies CSSProperties,
+  iconBox: (color: string, bg: string): CSSProperties => ({
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    display: "grid",
+    placeItems: "center",
+    background: bg,
+    color,
+    flexShrink: 0,
+  }),
+  itemTitle: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: 600,
+    color: "var(--text-primary)",
+  } satisfies CSSProperties,
+  chevron: (open: boolean): CSSProperties => ({
+    color: "var(--text-muted)",
+    transform: open ? "rotate(0deg)" : "rotate(-90deg)",
+    transition: "transform 120ms ease",
+    flexShrink: 0,
+  }),
+  fileRefs: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    paddingLeft: 34,
+    minWidth: 0,
+  } satisfies CSSProperties,
+  explanation: {
+    margin: 0,
+    paddingLeft: 34,
+    fontSize: 13,
+    color: "var(--text-secondary)",
+    lineHeight: 1.5,
+  } satisfies CSSProperties,
+} as const;

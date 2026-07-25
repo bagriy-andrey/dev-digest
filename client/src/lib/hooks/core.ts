@@ -15,8 +15,8 @@ import type {
   Repo,
   PrMeta,
   PrDetail,
-  SpecFile,
-  IndexStatus,
+  ContextDoc,
+  ContextIndexStatus,
 } from "../types";
 
 // ---- Settings (F1: GET/PUT /settings, POST /settings/test-connection) ----
@@ -119,11 +119,11 @@ export function usePullDetail(prId: string | number | null | undefined) {
   });
 }
 
-// ---- Project Context (A3 contract; safe to call once API exposes it) ----
+// ---- Project Context (discovered docs list + reindex trigger) ----
 export function useContextFiles(repoId: string | null | undefined) {
   return useQuery({
     queryKey: ["context", repoId],
-    queryFn: () => api.get<SpecFile[]>(`/repos/${repoId}/context`),
+    queryFn: () => api.get<ContextDoc[]>(`/repos/${repoId}/context`),
     enabled: !!repoId,
   });
 }
@@ -131,7 +131,8 @@ export function useContextFiles(repoId: string | null | undefined) {
 export function useReindexContext() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (repoId: string) => api.post<IndexStatus>(`/repos/${repoId}/context/reindex`),
+    mutationFn: (repoId: string) =>
+      api.post<ContextIndexStatus>(`/repos/${repoId}/context/reindex`),
     onSuccess: (_d, repoId) => qc.invalidateQueries({ queryKey: ["context", repoId] }),
   });
 }
