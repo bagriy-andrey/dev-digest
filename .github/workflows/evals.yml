@@ -25,6 +25,7 @@ on:
       - '.claude/**'
       - 'CLAUDE.md'
       - 'evals/**'
+  workflow_dispatch: {} # manual fallback — dispatch on any branch when a PR event doesn't fire
 
 permissions:
   contents: read
@@ -55,7 +56,16 @@ jobs:
       - name: Compute changed files
         id: diff
         run: |
-          git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" > /tmp/changed-files.txt
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" > /tmp/changed-files.txt
+          else
+            # workflow_dispatch: no PR diff to read — treat every existing skill/agent + CLAUDE.md
+            # as touched so a manual run exercises the whole suite.
+            : > /tmp/changed-files.txt
+            echo "CLAUDE.md" >> /tmp/changed-files.txt
+            for d in .claude/skills/*/; do echo "${d}SKILL.md" >> /tmp/changed-files.txt; done
+            for f in .claude/agents/*.md; do echo "$f" >> /tmp/changed-files.txt; done
+          fi
           cat /tmp/changed-files.txt >&2
 
       - name: Run ci-detect.mjs
