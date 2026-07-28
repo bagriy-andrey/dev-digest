@@ -1,0 +1,7 @@
+{
+  "name": "dev-digest",
+  "private": true,
+  "scripts": {
+    "verify:l06": "pnpm --dir reviewer-core typecheck && pnpm --dir reviewer-core test && pnpm --dir server typecheck && pnpm --dir server exec vitest run --exclude '**/*.it.test.ts' && pnpm --dir client typecheck && pnpm --dir client test"
+  }
+}

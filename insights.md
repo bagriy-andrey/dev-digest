@@ -99,7 +99,20 @@
   needs correcting to a cheap/flash SKU — an existing registry entry existing is not evidence its
   default is sane.
 
-- **The Planner subagent was renamed `.claude/agents/planner.md` → `.claude/agents/implementation-planner.md`
+- **2026-07-28 addendum (Eval Pipeline, `specs/eval-pipeline.md`): a FOURTH confirmed instance,
+  and one new wrinkle — a mechanism built years-early with the consuming feature's name already
+  in its own code comment.** `eval_cases`/`eval_runs` tables (`server/src/db/schema/eval.ts`) and
+  their full Zod contracts (`EvalCase`/`EvalRun`/`EvalCaseInput`/`EvalRunRecord`/`EvalDashboard`
+  etc., both vendored copies) existed with zero readers/writers, same shape as Intent/Blast/
+  Smart-Diff/PrBrief above. The new wrinkle: `agents.version` + `agent_versions` (immutable config
+  snapshots on every agent edit) is not just unwired scaffolding but a FULLY WORKING, actively-used
+  mechanism (`GET /agents/:id/versions` already exists) whose own repository code comment says
+  *"config into agent_versions (reproducibility for eval)"* — i.e. a past lesson deliberately
+  over-built a working feature in anticipation of a not-yet-built later one, rather than leaving
+  dead scaffolding. ⇒ When auditing for "what already exists" on a new feature, don't assume every
+  precedent artifact is inert scaffolding — check whether an existing, fully-working mechanism in
+  an unrelated-looking module (here: agent config editing) was already built with this feature's
+  needs in mind, and reuse it as-is rather than building a parallel versioning/snapshot system.
   (frontmatter `name: implementation-planner`) and its scope was tightened: it never authors or
   redefines product requirements/specs, only turns already-defined requirements into a build
   breakdown.** It still writes to `<module>/specs/*.md` (that path convention didn't change) and

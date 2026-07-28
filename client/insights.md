@@ -66,6 +66,18 @@
   note), not as an off-limits third-party file, since `nav.ts` is first-party route/shortcut
   config, not a component implementation.
 
+- **A confirmed instance of the above going wrong, not just being incomplete: `nav.ts`'s Eval
+  Dashboard entry is `{ key: "eval-dashboard", ..., href: "/eval" }`, but `activeKeyFor()`
+  (`app-shell/helpers.ts`) has `if (pathname.startsWith("/eval")) return "eval";` — a DIFFERENT
+  key string.** Both exist today; neither is missing. The sidebar item can never highlight when
+  a user is on any `/eval*` route, because `Sidebar.tsx` compares the NAV item's own `key` against
+  whatever `activeKeyFor` returns, and `"eval-dashboard" !== "eval"`. No error, no console warning —
+  the route works, the page renders, only the highlight silently never activates. ⇒ When a nav
+  item and its `activeKeyFor` branch are both pre-written ahead of the page (the common pattern
+  noted above), diff the exact key STRING on both sides, not just whether both exist — matching
+  substrings (`"eval"` vs `"eval-dashboard"`) are exactly the kind of near-miss that passes a quick
+  glance.
+
 ## Recurring Errors & Fixes
 
 - **CSS var hardcoded fallback breaks dark mode**: `var(--token, #hardcoded-light-color)` silently renders the hex fallback in dark mode when `--token` is undefined. Always use another CSS variable as fallback (`var(--token, var(--other-token))`) or omit the fallback and define the token in the theme. Fixed: `var(--accent-subtle, #f0f7ff)` → `var(--accent-bg)` on the selected CandidateCard background.
