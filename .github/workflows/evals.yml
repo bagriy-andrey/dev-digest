@@ -84,6 +84,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       fail-fast: false
+      max-parallel: 1 # keep concurrent OpenRouter load low — see evals/README.md rate-limit note
       matrix:
         skill: ${{ fromJson(needs.detect.outputs.skills) }}
     defaults:
@@ -104,7 +105,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # Content tier only — talks to OpenRouter directly, no proxy needed for DeepSeek.
-      - run: pnpm vitest run "skills/${{ matrix.skill }}"
+      # Trailing slash matters: without it "agents/architecture-reviewer" is a path PREFIX of
+      # "agents/architecture-reviewer-lite/..." and vitest would run both suites in one job.
+      - run: pnpm vitest run "skills/${{ matrix.skill }}/"
 
   agent-evals:
     name: agent-evals (${{ matrix.agent }})
@@ -115,6 +118,7 @@ jobs:
     continue-on-error: true # tool tier: DeepSeek is known not to dispatch subagents reliably
     strategy:
       fail-fast: false
+      max-parallel: 1 # keep concurrent OpenRouter load low — see evals/README.md rate-limit note
       matrix:
         agent: ${{ fromJson(needs.detect.outputs.agents) }}
     defaults:
@@ -140,7 +144,8 @@ jobs:
       # DeepSeek on OpenRouter (see evals/proxy/litellm.config.yaml).
       - run: docker compose -f proxy/docker-compose.yml up -d
       - run: pnpm proxy:wait
-      - run: pnpm vitest run "agents/${{ matrix.agent }}"
+      # Trailing slash: same prefix-collision reason as skill-evals above.
+      - run: pnpm vitest run "agents/${{ matrix.agent }}/"
       - if: failure()
         run: docker compose -f proxy/docker-compose.yml logs --tail 100
       - if: always()
@@ -148,8 +153,8 @@ jobs:
 
   workflow-evals:
     name: workflow-evals
-    needs: detect
-    if: needs.detect.outputs.run_workflow == 'true'
+    needs: [detect, agent-evals] # serialize after agent-evals — same OPENROUTER_API_KEY, avoid concurrent rate-limits
+    if: always() && needs.detect.outputs.run_workflow == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     continue-on-error: true # tool tier: DeepSeek is known not to dispatch subagents reliably
