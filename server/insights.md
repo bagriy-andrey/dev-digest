@@ -458,3 +458,27 @@
 ## Open Questions
 
 - API Contract Reviewer experiment (skills-off vs skills-on) not yet run — needs a breaking-change PR in a cloned repo + two review runs to compare.
+
+- 2026-07-29: Implemented `modules/evals/{batch-registry,case-service,runner,dashboard-service,routes}.ts`
+  (SPEC-03 step 4, on top of step 3's `EvalsRepository`). Key finding:
+  **`EvalsRepository.runsForBatch(batchId)` (step 3) takes ONLY a `batchId` — no `workspaceId` join
+  at all** (`eval_runs` has no workspace column and this particular query doesn't route through
+  `eval_cases.workspace_id` the way `runsForOwner`/`caseIdsInBatch` do). Any consumer that resolves
+  a batch by id alone (the dashboard's `GET /eval-batches/:batchId` and `/eval-batches/compare`) MUST
+  NOT trust a bare `batchId` for tenancy — a batch belonging to another workspace would otherwise be
+  fully readable cross-tenant. The fix used in `EvalDashboardService.batchSummary`: after
+  `runsForBatch`, resolve the first run's `case_id` through the WORKSPACE-SCOPED `getCase(workspaceId,
+  caseId)` — if that returns `undefined` (wrong workspace, or the case was since deleted), treat the
+  whole batch as not-found. This one call does double duty: it's both the tenancy check AND the way
+  to attribute a batch to its owning agent (`EvalRunRecord` carries no `agent_id`/`owner_id` field at
+  all, only `case_id`/`case_name`) — there is no cheaper way to get from a bare batch id back to "which
+  agent". ⇒ Any future `modules/evals/**` code that takes a `batchId` from a route param/query MUST
+  route through a workspace-scoped case/owner lookup before trusting anything else about that batch;
+  don't assume `runsForBatch`'s own return shape is tenancy-safe.
+  Also: the plan's own routes table for this step marks exactly 3 routes with ⚡ (`POST
+  /eval-cases/:id/run`, `POST /agents/:id/eval-runs`, `POST /eval-runs`) but its prose says "the FOUR
+  cost-amplifying POSTs" / "all four ⚡ routes" — a genuine off-by-one in the plan text itself (there
+  is no fourth candidate: the two remaining POSTs, `/agents/:id/eval-cases` and
+  `/findings/:id/eval-case`, both create rows with zero LLM calls). Implemented with 3 rate-limited
+  routes (matching the table, the actual ground truth), not 4 — worth a heads-up to whoever reviews
+  this against the plan's prose.
