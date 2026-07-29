@@ -40,6 +40,8 @@ export interface UpdateAgent {
   ciFailOn?: CiFailOn;
   repoIntel?: boolean;
   enabled?: boolean;
+  /** Ordered set of linked skill ids to replace the agent's current links with. */
+  skillIds?: string[];
 }
 
 /** A skill linked to an agent (with its order and per-link enabled flag). */
@@ -124,8 +126,13 @@ export class AgentsRepository {
     const existing = await this.getById(workspaceId, id);
     if (!existing) return undefined;
 
+    // If the patch touches linked skills, load the CURRENT ordered set first so
+    // isConfigChange can diff it against patch.skillIds.
+    const existingSkillIds =
+      patch.skillIds !== undefined ? await this.skillIdsForAgent(id) : undefined;
+
     // A config-affecting change (anything except just toggling enabled) bumps version.
-    const configChanged = isConfigChange(existing, patch);
+    const configChanged = isConfigChange({ ...existing, skillIds: existingSkillIds }, patch);
     const nextVersion = configChanged ? existing.version + 1 : existing.version;
 
     const [row] = await this.db
@@ -147,6 +154,11 @@ export class AgentsRepository {
       })
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.id, id)))
       .returning();
+
+    // Write the new skill links BEFORE snapshotVersion — snapshotVersion itself
+    // reads skillIdsForAgent at snapshot time, so this order is load-bearing:
+    // writing it after would snapshot the OLD skill set.
+    if (row && patch.skillIds !== undefined) await this.setSkills(id, patch.skillIds);
 
     if (configChanged && row) await this.snapshotVersion(row, nextVersion);
     return row;

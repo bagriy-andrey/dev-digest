@@ -24,6 +24,7 @@ const VersionParams = z.object({
  *   PUT    /agents/:id              → update / toggle enabled (versions config)
  *   GET    /agents/:id/versions     → config history (newest first)
  *   GET    /agents/:id/versions/:version → one config snapshot
+ *   POST   /agents/:id/promote-version → restore a past config snapshot as live
  *   GET    /agents/:id/skills       → linked skills (ordered)
  *   POST   /agents/:id/skills       → set/reorder linked skills OR link one
  *   GET    /agents/:id/models       → dynamic model list for the agent's provider
@@ -54,6 +55,10 @@ const UpdateAgentBody = z.object({
   ci_fail_on: CiFailOn.optional(),
   repo_intel: z.boolean().optional(),
   enabled: z.boolean().optional(),
+});
+
+const PromoteVersionBody = z.object({
+  version: z.number().int().positive(),
 });
 
 /** Either set the whole ordered set (`skill_ids`) or link/toggle one (`skill_id`). */
@@ -140,6 +145,24 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
       const version = await service.getVersion(workspaceId, req.params.id, req.params.version);
       if (!version) throw new NotFoundError('Agent version not found');
       return version;
+    },
+  );
+
+  // Restores a past agent_versions snapshot as the live config (Promote vN).
+  // Cost-amplifying: a promote can change what a subsequent (paid) eval batch
+  // or review run uses, so it carries the same per-route rate limit as the
+  // review-trigger endpoints.
+  app.post(
+    '/agents/:id/promote-version',
+    {
+      schema: { params: IdParams, body: PromoteVersionBody },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      const { workspaceId } = await getContext(app.container, req);
+      const agent = await service.promoteVersion(workspaceId, req.params.id, req.body.version);
+      if (!agent) throw new NotFoundError('Agent or version not found');
+      return agent;
     },
   );
 
