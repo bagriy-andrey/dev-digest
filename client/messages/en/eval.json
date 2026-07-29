@@ -1,4 +1,7 @@
 {
+  "common": {
+    "notApplicable": "Not applicable — no cases exercised this metric yet"
+  },
   "dashboard": {
     "defaultTitle": "Eval Dashboard",
     "loading": "Loading eval metrics…",
@@ -28,7 +31,21 @@
       "cost": "Cost"
     },
     "pass": "pass",
-    "fail": "fail"
+    "fail": "fail",
+    "movement": {
+      "recall": {
+        "up": "Recall is up {delta}pt since the previous batch.",
+        "down": "Recall is down {delta}pt since the previous batch."
+      },
+      "precision": {
+        "up": "Precision is up {delta}pt since the previous batch.",
+        "down": "Precision is down {delta}pt since the previous batch."
+      },
+      "citation": {
+        "up": "Citation accuracy is up {delta}pt since the previous batch.",
+        "down": "Citation accuracy is down {delta}pt since the previous batch."
+      }
+    }
   },
   "caseEditor": {
     "newCase": "New eval case",
@@ -55,7 +72,12 @@
     "invalidJson": "invalid JSON",
     "lastRunPassed": "Last run passed",
     "lastRunFailed": "Last run failed",
-    "resultSummary": "recall {recall}% · precision {precision}% · citation {citation}% · {duration}s"
+    "resultSummary": "recall {recall}% · precision {precision}% · citation {citation}% · {duration}s",
+    "insertSkeleton": "+ Finding skeleton",
+    "validationError": "Invalid expected output: {message}",
+    "runOnSave": "Run on save",
+    "deleteConfirm": "Delete this eval case? This also deletes its run history.",
+    "cancel": "Cancel"
   },
   "evalsTab": {
     "metricsTitle": "Eval metrics",
@@ -71,7 +93,42 @@
     "run": "Run",
     "running": "Running…",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "runAll": "Run all evals",
+    "runAllConfirm": "Run all {count, plural, one {# eval case} other {# eval cases}} for this agent?",
+    "failureReason": "Failure: {reason}",
+    "expectedGot": "Expected {expected} · Got {got}"
+  },
+  "workspace": {
+    "title": "Eval Dashboard",
+    "columns": {
+      "agent": "Agent",
+      "model": "Model",
+      "lastBatch": "Last batch",
+      "recall": "Recall",
+      "precision": "Precision",
+      "citation": "Citation"
+    },
+    "runAllAgents": "Run all agents",
+    "runAllConfirm": "Run eval cases for every enabled agent? {count, plural, one {# case} other {# cases}} total.",
+    "empty": "No enabled agents with eval cases yet."
+  },
+  "compare": {
+    "title": "Compare batches",
+    "older": "Older",
+    "newer": "Newer",
+    "promote": "Promote v{version}",
+    "promoteDisabled": "This version's config was not recorded and can't be promoted.",
+    "versionNotRecorded": "Version not recorded",
+    "caseSetDiffers": "{count, plural, one {# case is} other {# cases are}} only in this batch — metrics aren't directly comparable.",
+    "selectTwo": "Select two batches to compare.",
+    "maxTwoSelected": "You can only compare two batches at a time."
+  },
+  "batch": {
+    "running": "Running",
+    "complete": "Complete",
+    "casesQueued": "{count, plural, one {# case} other {# cases}} queued",
+    "alreadyRunning": "A batch is already running for this agent."
   },
   "page": {
     "crumbSkillsLab": "Skills Lab",
