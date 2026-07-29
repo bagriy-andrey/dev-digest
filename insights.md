@@ -22,6 +22,8 @@
   parallel-subagent orchestration in this repo needs that same constraint
   enforced at the planning stage, not assumed from git-worktree isolation.
 
+- **An `implementer` finishing a step and reporting file-by-file success does NOT mean its worktree has a commit** — on `/sdd-build`'s Eval Pipeline run (5 of 5 dispatched implementers so far), every single one left its changes staged-or-modified but **uncommitted** in its own worktree, despite fully completing its declared file list and reporting typecheck/test results. `git merge --no-ff <worktree-branch>` on an uncommitted worktree silently reports **"Already up to date"** (the branch tip genuinely has no new commit) — this looks like a no-op merge, not an error, so it's easy to mistake for "nothing to integrate" instead of "the work exists only in an uncommitted working tree." ⇒ Before merging any `implementer` worktree branch into the integration branch, always `cd` into that worktree and run `git status` first; if there are uncommitted changes, `git add` + `git commit` them there before merging — do not trust "already up to date" as proof a step produced no changes. This is now a required step in `/sdd-build`'s own integration procedure, not an edge case.
+
 - Per-run **cost is already computed by `reviewer-core`** end-to-end: `ReviewOutcome.costUsd`
   (number | null) comes from OpenRouter's `usage.cost` extension, with an injected
   `estimateCost(model, in, out)` price-table fallback. It is then **silently dropped at the

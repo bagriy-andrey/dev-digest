@@ -1,0 +1,115 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for the workspace eval dashboard. */
+export const s = {
+  pageHeader: {
+    padding: "24px 32px 10px",
+    display: "flex",
+    alignItems: "flex-end",
+    gap: 16,
+  } satisfies CSSProperties,
+  pageTitle: {
+    fontSize: 24,
+    fontWeight: 700,
+    letterSpacing: "-0.02em",
+    flex: 1,
+  } satisfies CSSProperties,
+  headerActions: {
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+  } satisfies CSSProperties,
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: 700,
+    margin: "28px 32px 8px",
+  } satisfies CSSProperties,
+  rowLink: {
+    display: "block",
+    textDecoration: "none",
+    color: "inherit",
+  } satisfies CSSProperties,
+  rowStack: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    padding: "0 32px 20px",
+  } satisfies CSSProperties,
+  rowCard: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  } satisfies CSSProperties,
+  rowHead: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+  } satisfies CSSProperties,
+  rowName: {
+    fontSize: 15,
+    fontWeight: 700,
+    flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  } satisfies CSSProperties,
+  rowTrend: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  rowTrendValue: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+  } satisfies CSSProperties,
+  rowBatchLine: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  tableCard: {
+    margin: "0 32px 12px",
+    border: "1px solid var(--border)",
+    borderRadius: 10,
+    overflow: "hidden",
+    background: "var(--bg-elevated)",
+  } satisfies CSSProperties,
+  runsGrid: "1.6fr 1fr 0.8fr 0.7fr 0.7fr 0.7fr 0.7fr" as const,
+  headRow: (grid: string): CSSProperties => ({
+    display: "grid",
+    gridTemplateColumns: grid,
+    gap: 14,
+    padding: "10px 20px",
+    borderBottom: "1px solid var(--border)",
+    background: "var(--bg-surface)",
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    color: "var(--text-muted)",
+    textTransform: "uppercase",
+  }),
+  runRow: (grid: string): CSSProperties => ({
+    display: "grid",
+    gridTemplateColumns: grid,
+    alignItems: "center",
+    gap: 14,
+    padding: "10px 20px",
+    borderBottom: "1px solid var(--border)",
+    fontSize: 13,
+  }),
+  passFail: (color: string): CSSProperties => ({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    color,
+    fontWeight: 600,
+  }),
+  loadingStack: {
+    padding: 20,
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+  } satisfies CSSProperties,
+} as const;
