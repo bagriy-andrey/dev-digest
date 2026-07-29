@@ -281,3 +281,24 @@
   `--warn`/`--ok` theme CSS vars `SeverityBadge` draws from (colour + a distinct icon per level:
   `AlertOctagon`/`AlertTriangle`/`CheckCircle`) so it stays on-theme and satisfies the
   colour-plus-non-colour-cue a11y requirement without a new hardcoded palette.
+
+- 2026-07-29 (SPEC-03 eval pipeline, step 6): `Agent` is likewise NOT in `lib/types.ts`'s
+  re-export allowlist (only the new `Eval*`/`AgentVersion` names were added there for this
+  feature) — a hook file (`hooks/evals.ts`) that needs `Agent` for a mutation's return type
+  must import it from `@devdigest/shared` directly, mirroring the existing convention already
+  used by `hooks/agents.ts`, not from `../types`. Confirms the 2026-07-16 entry above generalizes
+  beyond `Brief`/`Risk`.
+- 2026-07-29: jsdom's `HTMLDivElement.isContentEditable` reads back as `undefined`, not `false`
+  (unlike a real browser). `app-shell/helpers.ts`'s `isTextInput` does
+  `!!node && (tagName === 'INPUT' || tagName === 'TEXTAREA' || node.isContentEditable)` — for a
+  plain, non-editable `<div>` this makes the whole `||` chain evaluate to `undefined` (the last
+  falsy operand), not `false`, under jsdom/vitest. The function's real callers only use it in a
+  boolean context (`if (isTextInput(...))`) so this is harmless in production, but a unit test
+  asserting `.toBe(false)` on a non-input element will fail in this test environment — assert
+  `.toBeFalsy()` instead when testing this helper (or any helper with the same `||`-chain-ending-
+  in-a-DOM-boolean-property shape).
+- 2026-07-29: TanStack Query v5's `refetchInterval` option accepts a function of the query object
+  (`(query) => query.state.data?.someField === 'running' ? intervalMs : false`), not just a static
+  number/`false` — use this to poll only while a resource is in an active/running state (e.g. an
+  eval batch's `status`) and stop automatically once it settles, rather than a `useEffect` +
+  manual `setInterval`/`clearInterval` or an always-on fixed interval.
