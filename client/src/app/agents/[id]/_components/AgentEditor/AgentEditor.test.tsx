@@ -11,6 +11,13 @@ vi.mock("../../../../../lib/hooks/agents", () => ({
   useProviderModels: () => ({ data: [{ id: "gpt-4.1", provider: "openai" }] }),
 }));
 
+// EvalsTab has its own dedicated test suite (EvalsTab/EvalsTab.test.tsx) —
+// here we only need a stub to prove AgentEditor's tab switch (constants.ts +
+// the render branch) reaches it at all (AC-37's guard).
+vi.mock("./_components/EvalsTab", () => ({
+  EvalsTab: () => <div data-testid="evals-tab" />,
+}));
+
 import { AgentEditor } from "./AgentEditor";
 
 afterEach(cleanup);
@@ -44,5 +51,23 @@ describe("A2 Agent Editor (smoke)", () => {
     expect(screen.getByText("Config")).toBeInTheDocument();
     expect(screen.getByText("Configuration")).toBeInTheDocument();
     expect(screen.getByText("Save agent")).toBeInTheDocument();
+  });
+
+  it("renders the Evals tab when opened with ?tab=evals and keeps it selected across re-renders (AC-37)", () => {
+    const { rerender } = renderWithIntl(<AgentEditor agent={AGENT} tab="evals" onTab={() => {}} />);
+    expect(screen.getByTestId("evals-tab")).toBeInTheDocument();
+
+    // Re-render (e.g. a parent state update) with the same tab prop — the tab
+    // must not silently snap back to "config" (the documented failure mode
+    // where a key exists in `TABS` but not the render switch, or vice versa).
+    rerender(
+      <NextIntlClientProvider locale="en" messages={{ agents: messages }}>
+        <ToastProvider>
+          <AgentEditor agent={AGENT} tab="evals" onTab={() => {}} />
+        </ToastProvider>
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByTestId("evals-tab")).toBeInTheDocument();
+    expect(screen.queryByText("Configuration")).not.toBeInTheDocument();
   });
 });
