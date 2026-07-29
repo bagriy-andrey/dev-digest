@@ -8,6 +8,7 @@ import type {
   Provider,
   ReviewStrategy,
 } from '@devdigest/shared';
+import { AgentVersionConfig } from '@devdigest/shared';
 import { AgentsRepository } from './repository.js';
 import { toAgentDto, toAgentVersionDto } from './helpers.js';
 
@@ -46,6 +47,8 @@ export interface UpdateAgentInput {
   ci_fail_on?: CiFailOn;
   repo_intel?: boolean;
   enabled?: boolean;
+  /** Ordered set of linked skill ids to replace the agent's current links with. */
+  skill_ids?: string[];
 }
 
 export class AgentsService {
@@ -104,8 +107,39 @@ export class AgentsService {
       ...(patch.ci_fail_on !== undefined ? { ciFailOn: patch.ci_fail_on } : {}),
       ...(patch.repo_intel !== undefined ? { repoIntel: patch.repo_intel } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+      ...(patch.skill_ids !== undefined ? { skillIds: patch.skill_ids } : {}),
     });
     return row ? toAgentDto(row) : undefined;
+  }
+
+  /**
+   * Restore a past `agent_versions` snapshot as the live config, by going through
+   * the SAME `update()` path a manual edit uses (AC-30) — never a separate write.
+   * An identical config is a no-op (AC-31); a skills-only difference now bumps +
+   * snapshots thanks to the `isConfigChange` fix in ./helpers.ts (AC-32).
+   * Returns undefined when the agent or the requested version doesn't exist.
+   */
+  async promoteVersion(
+    workspaceId: string,
+    agentId: string,
+    version: number,
+  ): Promise<Agent | undefined> {
+    const agent = await this.repo.getById(workspaceId, agentId);
+    if (!agent) return undefined;
+    const versionRow = await this.repo.getVersion(agentId, version);
+    if (!versionRow) return undefined;
+    const config = AgentVersionConfig.parse(versionRow.configJson);
+
+    return this.update(workspaceId, agentId, {
+      provider: config.provider,
+      model: config.model,
+      system_prompt: config.system_prompt,
+      output_schema: config.output_schema,
+      strategy: config.strategy,
+      ci_fail_on: config.ci_fail_on,
+      repo_intel: config.repo_intel,
+      skill_ids: config.skills,
+    });
   }
 
   /**
