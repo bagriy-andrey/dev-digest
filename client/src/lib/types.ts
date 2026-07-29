@@ -47,6 +47,22 @@ export type {
   OnboardingDoc,
 } from "@devdigest/shared";
 export type { Skill, SkillType, SkillSource, AgentSkillLink } from "@devdigest/shared";
+export type {
+  EvalCase,
+  EvalCaseInput,
+  EvalExpectation,
+  EvalRunRecord,
+  EvalRunDetail,
+  EvalBatchSummary,
+  EvalCompare,
+  EvalDashboard,
+  EvalWorkspaceDashboard,
+  EvalAgentRow,
+  EvalTrendPoint,
+  EvalBatchStart,
+  EvalBatchStartAll,
+  AgentVersion,
+} from "@devdigest/shared";
 
 /**
  * `GET /pulls/:id/blast`'s actual response shape: the `BlastRadius` contract
