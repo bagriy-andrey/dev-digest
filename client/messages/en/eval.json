@@ -23,6 +23,9 @@
       "citation": "Citation"
     },
     "table": {
+      "case": "Case",
+      "version": "Version",
+      "status": "Status",
       "ranAt": "Ran at",
       "recall": "Recall",
       "precision": "Precision",
@@ -32,6 +35,10 @@
     },
     "pass": "pass",
     "fail": "fail",
+    "neverRun": "Never run",
+    "batchHistory": "Batch history",
+    "errorTitle": "Couldn't load this agent's eval dashboard",
+    "errorBody": "The eval dashboard could not be loaded.",
     "movement": {
       "recall": {
         "up": "Recall is up {delta}pt since the previous batch.",
@@ -111,12 +118,17 @@
     },
     "runAllAgents": "Run all agents",
     "runAllConfirm": "Run eval cases for every enabled agent? {count, plural, one {# case} other {# cases}} total.",
-    "empty": "No enabled agents with eval cases yet."
+    "empty": "No enabled agents with eval cases yet.",
+    "batchLabel": "v{version} · {date} · {passed}/{total} pass",
+    "errorTitle": "Couldn't load the eval dashboard",
+    "errorBody": "The workspace eval dashboard could not be loaded."
   },
   "compare": {
     "title": "Compare batches",
+    "compareAction": "Compare",
     "older": "Older",
     "newer": "Newer",
+    "systemPrompt": "System prompt",
     "promote": "Promote v{version}",
     "promoteDisabled": "This version's config was not recorded and can't be promoted.",
     "versionNotRecorded": "Version not recorded",

@@ -302,3 +302,30 @@
   number/`false` — use this to poll only while a resource is in an active/running state (e.g. an
   eval batch's `status`) and stop automatically once it settles, rather than a `useEffect` +
   manual `setInterval`/`clearInterval` or an always-on fixed interval.
+- 2026-07-29 (SPEC-03 eval pipeline, step 9 — `/eval` + `/eval/[agentId]` + CompareModal): the
+  vendored `Checkbox` (`vendor/ui/kit/Checkbox.tsx`) has NO `disabled` prop — it's a fixed
+  `checked`/`onChange`/`label` signature. For a max-N-selection constraint (AC-27's "prevent
+  selecting a third"), don't rely on wrapping it in a `pointerEvents: "none"` style to block the
+  click: jsdom/RTL's `fireEvent.click` does not implement CSS `pointer-events` at all, so a test
+  clicking a capped-out checkbox would still fire `onClick` regardless of that wrapper style. The
+  only real prevention has to be in the state-update logic itself — a pure `toggleSelection(prev,
+  id, checked)` helper that no-ops (returns the same array reference) once `prev.length >= max`
+  when `checked` is true, always allows unchecking. Keep the `pointerEvents`/`opacity` wrapper only
+  as a visual affordance, not the actual guard, and unit-test the pure helper directly rather than
+  asserting on inert CSS.
+- 2026-07-29: a component that calls `useToast()` (`lib/toast.tsx`) throws
+  `"useToast must be used within <ToastProvider>"` if a test renders it without wrapping in the
+  real `<ToastProvider>` — mocking `@/lib/toast` isn't necessary/worth it, `ToastProvider` itself
+  has no network/timers-that-matter for a synchronous render, so just wrap the test's render tree
+  in the real provider (`<ToastProvider>{ui}</ToastProvider>`), same as
+  `AgentEditor.test.tsx` already does.
+- 2026-07-29: when `Edit`'s `old_string` for a JSON message file spans two sibling blocks (e.g. the
+  tail of one top-level key plus the following key's opening brace, to disambiguate a duplicate
+  line), double-check which block the *new* key actually lands inside afterward — an insertion
+  placed right before a `},\n  "nextBlock": {` boundary line is easy to accidentally leave inside
+  the FIRST block instead of the second. Caught here because a component's `t("compare.
+  compareAction")` call resolved to the untranslated key string at runtime (next-intl's fallback)
+  even though the JSON parsed fine and had a same-named key — it had landed one nesting level up,
+  inside `"workspace"` instead of `"compare"`. `next-intl`'s missing-key behavior is a silent
+  fallback to the raw key path, not a build/typecheck error, so this only surfaces at
+  render/test time, never at `pnpm typecheck`.
