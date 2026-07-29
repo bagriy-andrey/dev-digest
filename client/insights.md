@@ -323,3 +323,20 @@
   `ToastProvider` has mounted. `DiffTab.tsx` already uses `notify` directly for this exact reason;
   `ConfigTab.tsx`'s `useToast()` pattern is only safe there because `AgentEditor.test.tsx` already
   wraps its render tree in a real `<ToastProvider>`.
+- 2026-07-29 (SPEC-03 eval pipeline, step 8 — Evals tab + case editor): three non-obvious things
+  hit building the Evals tab. (1) **`EvalDashboard.current` (the aggregate `useAgentEvalDashboard`
+  returns) has NO `recall_na`/`precision_na`/`citation_accuracy_na` fields** — only
+  `EvalBatchSummary` (a single batch row) carries the D1/AC-18 `_na` flags. Feeding `MetricStrip`
+  from the dashboard's `current` object therefore always passes `na: false` (or omits it); do not
+  assume every metric-shaped object in this feature carries `_na` — check the specific contract.
+  (2) **Importing a zod schema VALUE (not just its inferred type) from `@devdigest/shared` is the
+  right call for validating USER INPUT** (e.g. the case editor's hand-edited `expected_output` JSON
+  textarea, via `EvalExpectations.safeParse`) — this does NOT contradict the "client never
+  re-validates API responses with zod" convention (`lib/api.ts` uses plain TS generics), because
+  that convention is about trusting the server's response, not about validating something the user
+  is actively typing before it's sent. (3) **`GET /agents/:id/eval-runs` has no `case_id` filter** —
+  it returns every run for the agent; to show "last run" per case (row summaries, the case editor's
+  status strip) you must group `EvalRunRecord[]` by `case_id` and take the max `ran_at` client-side.
+  Also: `@devdigest/ui`'s `Textarea`/`TextInput` primitives don't spread arbitrary HTML props (no
+  `...rest`, no `data-testid` passthrough) — in RTL tests, locate them via
+  `getByDisplayValue(/some distinctive substring/)` instead.

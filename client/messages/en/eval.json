@@ -59,6 +59,7 @@
     "inputLabel": "Input",
     "tabs": {
       "diff": "Diff",
+      "files": "Files",
       "prMeta": "PR meta"
     },
     "diffPlaceholder": "--- a/src/config.ts\n+++ b/src/config.ts\n@@ -10,6 +10,7 @@\n+  stripeKey: \"sk_live_...\"",
@@ -66,10 +67,13 @@
     "titlePlaceholder": "Add Stripe integration",
     "bodyLabel": "Body",
     "bodyPlaceholder": "Wire up payments via Stripe SDK.",
+    "noFilesRecorded": "No files recorded for this case.",
     "preview": "Preview",
     "expectedOutput": "Expected output",
     "validJson": "valid JSON",
     "invalidJson": "invalid JSON",
+    "notesLabel": "Notes",
+    "notesPlaceholder": "Why this case matters, or anything future editors should know.",
     "lastRunPassed": "Last run passed",
     "lastRunFailed": "Last run failed",
     "resultSummary": "recall {recall}% · precision {precision}% · citation {citation}% · {duration}s",
