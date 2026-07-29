@@ -302,3 +302,24 @@
   number/`false` — use this to poll only while a resource is in an active/running state (e.g. an
   eval batch's `status`) and stop automatically once it settles, rather than a `useEffect` +
   manual `setInterval`/`clearInterval` or an always-on fixed interval.
+- 2026-07-29 (SPEC-03 eval pipeline, step 7): adding a NEW `useMutation`/`useQuery` call directly
+  inside an EXISTING, widely-consumed leaf component (`FindingCard`, rendered by `FindingsPanel`
+  and its own test suite) breaks every OTHER test that renders that leaf component without a
+  `QueryClientProvider` or a mock for the new hook — `FindingsPanel.test.tsx` (outside this step's
+  file list) started failing with "No QueryClient set" the moment `FindingCard` called
+  `useCreateEvalCaseFromFinding()` unconditionally at its top level, even though the button the
+  hook backs only ever renders conditionally. Fix that stays within a file-list-scoped step: extract
+  the action into its own child component that calls the hook, and only ever MOUNT that child
+  component when the condition holds (`{muted && <TurnIntoEvalCaseAction findingId={f.id} />}`)
+  instead of calling the hook unconditionally in the parent and conditionally rendering its JSX
+  output — since hooks only run for component instances that actually mount, a fixture that never
+  satisfies the condition (e.g. an undecided finding) never triggers the new hook, so unrelated
+  tests using only that fixture keep working with zero new mocks/providers. Also: for a toast fired
+  from a component that might be rendered (directly or via a parent) in a test with no
+  `<ToastProvider>` ancestor, use the module-level `notify.success/error(...)` bridge
+  (`lib/toast.tsx`) instead of the `useToast()` hook — `useToast()` throws
+  ("must be used within <ToastProvider>") the instant the component mounts, unconditionally,
+  regardless of whether the toast ever fires, whereas `notify` no-ops silently when no
+  `ToastProvider` has mounted. `DiffTab.tsx` already uses `notify` directly for this exact reason;
+  `ConfigTab.tsx`'s `useToast()` pattern is only safe there because `AgentEditor.test.tsx` already
+  wraps its render tree in a real `<ToastProvider>`.
