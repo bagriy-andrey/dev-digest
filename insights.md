@@ -9,6 +9,23 @@
 
 ## What Doesn't Work
 
+- **A root-level orchestration script (e.g. `package.json`'s `verify:l06`, added for the Eval
+  Pipeline feature) must invoke `reviewer-core` via `npm --prefix reviewer-core`, never `pnpm --dir
+  reviewer-core` — mixing package managers across this repo's 5 independently-lockfiled packages
+  breaks silently, not loudly.** `reviewer-core` is the one package that uses `npm`/`package-lock.json`
+  (already documented in `server/insights.md` re: `pnpm install` there fabricating a stray
+  `pnpm-lock.yaml`/`pnpm-workspace.yaml`) — but the same failure isn't limited to an explicit
+  `pnpm install`: running ANY `pnpm --dir reviewer-core <script>` (e.g. `typecheck`) triggers pnpm's
+  own pre-run dependency-status check, which fabricates the same stray lockfile/workspace files and
+  can additionally hit pnpm's build-script-approval gate (`[ERR_PNPM_IGNORED_BUILDS]` for
+  `esbuild`) — a hard failure with a confusing error, not an obvious "wrong package manager" message.
+  Fixed in `verify:l06` by switching to `npm --prefix reviewer-core run typecheck` / `npm --prefix
+  reviewer-core test`; the stray `reviewer-core/pnpm-lock.yaml`/`pnpm-workspace.yaml` files must be
+  deleted (git-untracked, safe to remove) if this is ever hit again. ⇒ Any future root-level script
+  spanning this repo's packages must pick `npm --prefix <dir>` vs `pnpm --dir <dir>` per-package
+  based on which lockfile that package actually commits — never assume pnpm uniformly, despite 4 of
+  the 5 packages using it.
+
 ## Codebase Patterns
 
 - The **Planner/Implementer subagent pair** (`.claude/agents/planner.md`,
