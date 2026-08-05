@@ -41,6 +41,8 @@
 
 - **An `implementer` finishing a step and reporting file-by-file success does NOT mean its worktree has a commit** — on `/sdd-build`'s Eval Pipeline run (5 of 5 dispatched implementers so far), every single one left its changes staged-or-modified but **uncommitted** in its own worktree, despite fully completing its declared file list and reporting typecheck/test results. `git merge --no-ff <worktree-branch>` on an uncommitted worktree silently reports **"Already up to date"** (the branch tip genuinely has no new commit) — this looks like a no-op merge, not an error, so it's easy to mistake for "nothing to integrate" instead of "the work exists only in an uncommitted working tree." ⇒ Before merging any `implementer` worktree branch into the integration branch, always `cd` into that worktree and run `git status` first; if there are uncommitted changes, `git add` + `git commit` them there before merging — do not trust "already up to date" as proof a step produced no changes. This is now a required step in `/sdd-build`'s own integration procedure, not an edge case.
 
+- **Running `/sdd-build`'s tier-merge `git checkout <integration-branch>` / `git merge` steps directly in the user's live working directory can silently hang an already-running dev server that watches that same directory.** On this session's Eval Pipeline run, the user had `./scripts/dev.sh` running in another terminal (`tsx watch src/server.ts` + `next dev`) for the whole build. After several `git checkout`/`git merge --no-ff` cycles integrating 9 implementer branches into `eval-pipeline` in that same directory, the user's `tsx watch` process was still alive (correct PID, no crash, no error logged) but had never bound to port 3001 — `lsof -i :3001` showed nothing, `curl` timed out, and the client showed a generic "Cannot reach the DevDigest engine" error with no indication of the cause. A freshly-started `node`/`tsx` process in the same directory bound to 3001 immediately, proving the code/DB were fine — only the long-running watched process was stuck, almost certainly from `tsx watch`'s file-watcher choking on the burst of file creates/modifies/deletes a multi-branch merge produces underneath it while it's mid-restart. ⇒ Symptom to recognize: the watched process's PID is still alive and never crashed, but nothing is listening on its port — check `lsof -i :<port>` before assuming a code/DB problem; the fix is killing and restarting the stuck process (`./scripts/dev.sh` again), not debugging the app. Ideally stop the user's dev server before a `/sdd-build` run touches the shared working directory with git operations, and restart it after.
+
 - Per-run **cost is already computed by `reviewer-core`** end-to-end: `ReviewOutcome.costUsd`
   (number | null) comes from OpenRouter's `usage.cost` extension, with an injected
   `estimateCost(model, in, out)` price-table fallback. It is then **silently dropped at the
@@ -184,6 +186,20 @@
   unexplained symbol from a file absent from that list means `pr_files` is holding a stale
   snapshot, point first at whether `GITHUB_TOKEN` is set before assuming a client-cache/index
   problem.
+
+  **2026-07-29 addendum — a token that is SET but INVALID/EXPIRED hits the exact same silent
+  degradation path as an unset one, at the PR-LIST level, not just the single-PR `pr_files`
+  refresh.** `modules/pulls/routes.ts`'s `GET /repos/:id/pulls` wraps its GitHub sync in a try/catch
+  that only logs `app.log.warn({ err }, 'GitHub PR sync skipped (no token / offline); serving
+  persisted PRs')` — a 401 from a revoked/expired PAT is caught by this same generic handler as a
+  missing token would be, so the app never surfaces "your token is bad" anywhere in the UI; the only
+  observable symptom is "the app doesn't see fresh GitHub activity," identical to the unset-token
+  case above. ⇒ Before assuming `GITHUB_TOKEN` is simply unset, check it's actually valid: `node -e
+  "require('dotenv').config(); fetch('https://api.github.com/user', {headers:{Authorization:'Bearer
+  '+process.env.GITHUB_TOKEN,'User-Agent':'check'}}).then(r=>r.text()).then(console.log)"` from
+  `server/` — a `401 Bad credentials` response confirms an expired/revoked token, not a code bug.
+  `tsx watch` does NOT reload `.env` changes — after rotating the token, the server process must be
+  fully restarted, not just left to hot-reload.
 
   **2026-07-12 second field confirmation — a brand-new PR-branch-only FILE is invisible even when
   `pr_files` is fully correct.** On the same real PR, after confirming `pr_files` matched GitHub
