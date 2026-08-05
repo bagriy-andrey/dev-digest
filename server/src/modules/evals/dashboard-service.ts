@@ -270,7 +270,7 @@ export class EvalDashboardService {
       citation_accuracy_na: agg.citation_accuracy_na,
       cost_usd: costUsd,
       duration_ms: durationMs,
-      status: batchRegistry.isRunning(agent.id) ? 'running' : 'complete',
+      status: batchRegistry.runningBatchId(agent.id) === batchId ? 'running' : 'complete',
     };
   }
 }

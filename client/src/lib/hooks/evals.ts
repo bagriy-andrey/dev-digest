@@ -163,11 +163,16 @@ export function useEvalCompare(a: string | null | undefined, b: string | null | 
 // Dashboards
 // ---------------------------------------------------------------------------
 
+/** Polls while the agent's most recent batch is still running (mirrors
+ *  `useEvalBatch`'s AC-12 pattern) — otherwise a batch that finishes after
+ *  the initial fetch would show "Running…" forever until a manual reload. */
 export function useAgentEvalDashboard(agentId: string | null | undefined) {
   return useQuery({
     queryKey: ["eval-dashboard", agentId],
     queryFn: () => api.get<EvalDashboard>(`/agents/${agentId}/eval-dashboard`),
     enabled: !!agentId,
+    refetchInterval: (query) =>
+      query.state.data?.recent_batches?.[0]?.status === "running" ? 2000 : false,
   });
 }
 

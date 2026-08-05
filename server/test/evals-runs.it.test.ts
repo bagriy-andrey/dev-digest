@@ -189,6 +189,52 @@ d('Eval batches: running, dashboards, compare (SPEC-03 step 4)', () => {
     await app.close();
   });
 
+  it("a batch's status reflects whether THAT batch is running, not whether the agent has ANY batch in flight", async () => {
+    // Regression test: `EvalDashboardService.buildSummary` originally computed
+    // `status` via `batchRegistry.isRunning(agent.id)` — true for every batch
+    // summary of that agent while ANY batch is in flight, not just the one
+    // actually running. Fixed to `batchRegistry.runningBatchId(agent.id) ===
+    // batchId`. Caught via manual UI testing (Agent Editor's Evals tab vs.
+    // the /eval/:agentId dashboard disagreeing on whether a run was live),
+    // not by this suite — this test locks the fix in.
+    const inner = new MockLLMProvider('openai', { structured: REVIEW_FIXTURE });
+    const app = await appWith(delayedProvider(inner, 80));
+    const agent = await createAgent(app);
+    const caseA = await createCase(app, agent.id);
+    const caseB = await createCase(app, agent.id);
+
+    // An already-complete, older batch inserted directly (never touches
+    // batchRegistry — exactly like a batch from a past server run/restart).
+    const oldBatchId = randomUUID();
+    await insertRunRow(caseA.id, oldBatchId, agent.version);
+    await insertRunRow(caseB.id, oldBatchId, agent.version);
+
+    // A genuinely in-flight batch for the SAME agent (80ms/case, sequential).
+    const startRes = await app.inject({ method: 'POST', url: `/agents/${agent.id}/eval-runs` });
+    const { batch_id: newBatchId } = startRes.json();
+    expect(newBatchId).not.toBeNull();
+
+    // Query the dashboard WHILE the new batch is still running.
+    const dashRes = await app.inject({ method: 'GET', url: `/agents/${agent.id}/eval-dashboard` });
+    expect(dashRes.statusCode).toBe(200);
+    const dashboard = dashRes.json() as {
+      recent_batches: { batch_id: string; status: string }[];
+    };
+    const oldSummary = dashboard.recent_batches.find((b) => b.batch_id === oldBatchId);
+    const newSummary = dashboard.recent_batches.find((b) => b.batch_id === newBatchId);
+    expect(oldSummary?.status).toBe('complete');
+    expect(newSummary?.status).toBe('running');
+
+    await waitForBatchRows(pg.handle.db, newBatchId, 2);
+    const dashAfter = await app.inject({ method: 'GET', url: `/agents/${agent.id}/eval-dashboard` });
+    const afterSummary = (
+      dashAfter.json() as { recent_batches: { batch_id: string; status: string }[] }
+    ).recent_batches.find((b) => b.batch_id === newBatchId);
+    expect(afterSummary?.status).toBe('complete');
+
+    await app.close();
+  });
+
   it('a deliberately-corrupt case among three ⇒ three rows, the corrupt one carries a readable failure reason (AC-20)', async () => {
     const app = await appWith(new MockLLMProvider('openai', { structured: REVIEW_FIXTURE }));
     const agent = await createAgent(app);

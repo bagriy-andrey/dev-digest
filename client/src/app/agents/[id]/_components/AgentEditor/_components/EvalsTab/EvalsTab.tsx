@@ -44,6 +44,7 @@ export function EvalsTab({ agent }: { agent: Agent }) {
   const [runningCaseId, setRunningCaseId] = React.useState<string | null>(null);
 
   const caseList = cases ?? [];
+  const running = dashboard?.recent_batches?.[0]?.status === "running";
 
   function handleRunAll() {
     // Edge case 16: eval runs cost real money — state the case count before
@@ -93,10 +94,10 @@ export function EvalsTab({ agent }: { agent: Agent }) {
             size="sm"
             icon="Play"
             onClick={handleRunAll}
-            disabled={caseList.length === 0}
+            disabled={caseList.length === 0 || running}
             loading={runAgentEvals.isPending}
           >
-            {t("evalsTab.runAll")}
+            {running ? t("evalsTab.running") : t("evalsTab.runAll")}
           </Button>
           <Button kind="primary" size="sm" icon="Plus" onClick={() => setEditor({ mode: "create" })}>
             {t("evalsTab.newCase")}
