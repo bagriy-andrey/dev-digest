@@ -201,6 +201,18 @@
   `tsx watch` does NOT reload `.env` changes — after rotating the token, the server process must be
   fully restarted, not just left to hot-reload.
 
+  **2026-08-05 addendum — a malformed `.env` line degrades identically to a missing/invalid token,
+  with no parse error.** A `server/.env` line like `<stray prose> GITHUB_TOKEN=ghp_xxx` (e.g. text
+  accidentally typed/pasted into the file while it was open in an editor, ahead of the `KEY=` token)
+  is silently skipped by `dotenv` — it doesn't match dotenv's `KEY=VALUE`-from-line-start pattern, so
+  `process.env.GITHUB_TOKEN` ends up `undefined`, hitting the exact same "sync skipped" code path as
+  an unset token, with zero indication the `.env` file itself is malformed rather than simply
+  unconfigured. The line can visually look fine at a glance (`GITHUB_TOKEN=ghp_...` is present
+  in the file) if the stray prefix is off-screen or easy to skim past. ⇒ When diagnosing "token
+  configured but sync still skipped," don't just check the value is present — confirm the line
+  itself starts exactly with `GITHUB_TOKEN=` (`grep -n '^GITHUB_TOKEN=' server/.env`), not just that
+  the substring appears somewhere on the line.
+
   **2026-07-12 second field confirmation — a brand-new PR-branch-only FILE is invisible even when
   `pr_files` is fully correct.** On the same real PR, after confirming `pr_files` matched GitHub
   exactly (§ above), `changed_symbols` STILL omitted every symbol from a file that was `status:
