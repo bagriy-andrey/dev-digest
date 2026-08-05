@@ -118,18 +118,22 @@ describe("CompareModal", () => {
     expect(screen.getAllByText("Version not recorded")).toHaveLength(1);
     expect(screen.getByText("You are a security reviewer (v2).")).toBeInTheDocument();
 
-    // Promote is disabled and the reason is exposed to assistive technology.
-    const promoteButton = screen.getByRole("button", { name: /Promote/ });
-    expect(promoteButton).toBeDisabled();
-    expect(promoteButton).toHaveAttribute(
+    // Promote (newer side) is disabled and the reason is exposed to assistive
+    // technology; the older side's own Promote stays independently enabled.
+    const promoteNewer = screen.getByRole("button", { name: "Promote v—" });
+    expect(promoteNewer).toBeDisabled();
+    expect(promoteNewer).toHaveAttribute(
       "title",
       "This version's config was not recorded and can't be promoted.",
     );
-    const describedById = promoteButton.getAttribute("aria-describedby");
+    const describedById = promoteNewer.getAttribute("aria-describedby");
     expect(describedById).toBeTruthy();
     expect(document.getElementById(describedById!)).toHaveTextContent(
       "This version's config was not recorded and can't be promoted.",
     );
+
+    const promoteOlder = screen.getByRole("button", { name: "Promote v2" });
+    expect(promoteOlder).toBeEnabled();
   });
 
   it("enables Promote v<newer> when the newer side has a recorded version", () => {
@@ -140,5 +144,50 @@ describe("CompareModal", () => {
 
     const promoteButton = screen.getByRole("button", { name: "Promote v3" });
     expect(promoteButton).toBeEnabled();
+  });
+
+  it("enables Promote v<older> when the older side has a recorded version, independent of the newer side", () => {
+    useEvalCompareMock.mockReturnValue({ data: compareData({}), isLoading: false, isError: false, refetch: vi.fn() });
+    usePromoteAgentVersionMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+
+    renderWithIntl();
+
+    const promoteButton = screen.getByRole("button", { name: "Promote v2" });
+    expect(promoteButton).toBeEnabled();
+  });
+
+  it("promoting the older version calls the mutation with the OLDER side's version, not the newer one", () => {
+    useEvalCompareMock.mockReturnValue({ data: compareData({}), isLoading: false, isError: false, refetch: vi.fn() });
+    const mutate = vi.fn();
+    usePromoteAgentVersionMock.mockReturnValue({ mutate, isPending: false });
+
+    renderWithIntl();
+
+    screen.getByRole("button", { name: "Promote v2" }).click();
+    expect(mutate).toHaveBeenCalledWith(
+      { agentId: "agent-1", version: 2 },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+  });
+
+  it("disables BOTH promote buttons independently when neither side has a recorded version", () => {
+    useEvalCompareMock.mockReturnValue({
+      data: compareData({
+        a: batchSummary({ agent_version: null }),
+        b: batchSummary({ batch_id: "batch-b", agent_version: null, recall: 0.75 }),
+        system_prompt_a: null,
+        system_prompt_b: null,
+      }),
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    usePromoteAgentVersionMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+
+    renderWithIntl();
+
+    const buttons = screen.getAllByRole("button", { name: "Promote v—" });
+    expect(buttons).toHaveLength(2);
+    buttons.forEach((b) => expect(b).toBeDisabled());
   });
 });

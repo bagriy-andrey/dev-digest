@@ -1,8 +1,11 @@
 /* CompareModal — the two-batch comparison view (AC-26/AC-28/AC-29/AC-30).
    Four `old → new` stat deltas, the system-prompt diff (or an explicit
    "version not recorded" note when a side's `agent_version` is null —
-   AC-28), the only-in-one-side case counts (AC-29), and "Promote v<newer>"
-   (AC-30), disabled whenever the newer side has no recorded version. */
+   AC-28), the only-in-one-side case counts (AC-29), and a Promote button per
+   side ("Promote v<older>" / "Promote v<newer>", AC-30) — the older side
+   matters just as much as the newer: the whole point of Compare is often
+   "the new prompt regressed, roll back to the old one." Each button is
+   independently disabled when its own side has no recorded version. */
 "use client";
 
 import { useTranslations } from "next-intl";
@@ -33,22 +36,29 @@ export function CompareModal({
 
   // AC-28 — the response always orders `a` = older, `b` = newer by ran_at,
   // regardless of the order the two batch ids were passed in.
+  const olderVersion = data?.a.agent_version ?? null;
   const newerVersion = data?.b.agent_version ?? null;
-  const promoteDisabled = newerVersion == null || promote.isPending;
+  const promoteOlderDisabled = olderVersion == null || promote.isPending;
+  const promoteNewerDisabled = newerVersion == null || promote.isPending;
 
-  const handlePromote = () => {
-    if (newerVersion == null) return;
+  const promoteVersion = (version: number) => {
     promote.mutate(
-      { agentId, version: newerVersion },
+      { agentId, version },
       {
         onSuccess: () => {
-          toast.success(t("compare.promote", { version: newerVersion }));
+          toast.success(t("compare.promote", { version }));
           onClose();
         },
         onError: (err) =>
           toast.error(err instanceof ApiError ? err.message : t("compare.promoteDisabled")),
       },
     );
+  };
+  const handlePromoteOlder = () => {
+    if (olderVersion != null) promoteVersion(olderVersion);
+  };
+  const handlePromoteNewer = () => {
+    if (newerVersion != null) promoteVersion(newerVersion);
   };
 
   return (
@@ -148,17 +158,32 @@ export function CompareModal({
 
           <div style={s.promoteBar}>
             <Button
+              kind="secondary"
+              disabled={promoteOlderDisabled}
+              loading={promote.isPending}
+              title={olderVersion == null ? t("compare.promoteDisabled") : undefined}
+              aria-describedby={olderVersion == null ? "promote-older-disabled-reason" : undefined}
+              onClick={handlePromoteOlder}
+            >
+              {t("compare.promote", { version: olderVersion ?? "—" })}
+            </Button>
+            <Button
               kind="primary"
-              disabled={promoteDisabled}
+              disabled={promoteNewerDisabled}
               loading={promote.isPending}
               title={newerVersion == null ? t("compare.promoteDisabled") : undefined}
-              aria-describedby={newerVersion == null ? "promote-disabled-reason" : undefined}
-              onClick={handlePromote}
+              aria-describedby={newerVersion == null ? "promote-newer-disabled-reason" : undefined}
+              onClick={handlePromoteNewer}
             >
               {t("compare.promote", { version: newerVersion ?? "—" })}
             </Button>
+            {olderVersion == null && (
+              <span id="promote-older-disabled-reason" style={s.disabledReason}>
+                {t("compare.promoteDisabled")}
+              </span>
+            )}
             {newerVersion == null && (
-              <span id="promote-disabled-reason" style={s.disabledReason}>
+              <span id="promote-newer-disabled-reason" style={s.disabledReason}>
                 {t("compare.promoteDisabled")}
               </span>
             )}
