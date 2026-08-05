@@ -78,6 +78,21 @@
   substrings (`"eval"` vs `"eval-dashboard"`) are exactly the kind of near-miss that passes a quick
   glance.
 
+- **2026-08-05: the same `"eval"` vs `"eval-dashboard"` near-miss had a THIRD, more severe instance
+  — a runtime i18n crash, not a silent no-op.** `useShellCommands.ts` (command palette) builds one
+  entry per NAV item via `t(\`nav.${it.key}\`)`, a DYNAMIC key lookup keyed off the NAV item's actual
+  `key` field. `messages/en/shell.json`'s `nav` block had `"eval": "Eval Dashboard"` — matching
+  neither the NAV item's real key (`"eval-dashboard"`) nor `activeKeyFor`'s already-fixed return
+  value. Unlike the `activeKeyFor` case (silent, no console output), this one throws
+  `IntlError: MISSING_MESSAGE` in the browser console on every `AppShell` mount (`useMemo` iterates
+  the full NAV list unconditionally, not just when the Eval route is visited) — confirmed via a real
+  user's devtools screenshot. Fixed by renaming the `shell.json` key to `"eval-dashboard"` (grepped
+  first: the only consumer of any `nav.<key>` message is this one dynamic lookup — safe rename, not
+  an add-alongside). ⇒ **Any place in this codebase that reads a NAV item's `.key` field — not just
+  `activeKeyFor`, whichever file does `t(...it.key...)` or a bespoke comparison — needs the same
+  exact-string audit.** `grep -rn "it\.key\|\.key\`" client/src/components/app-shell client/src/vendor/ui/shell`
+  to enumerate all current consumers before trusting any NAV-derived key elsewhere.
+
 ## Recurring Errors & Fixes
 
 - **CSS var hardcoded fallback breaks dark mode**: `var(--token, #hardcoded-light-color)` silently renders the hex fallback in dark mode when `--token` is undefined. Always use another CSS variable as fallback (`var(--token, var(--other-token))`) or omit the fallback and define the token in the theme. Fixed: `var(--accent-subtle, #f0f7ff)` → `var(--accent-bg)` on the selected CandidateCard background.
