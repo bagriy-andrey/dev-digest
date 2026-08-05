@@ -67,7 +67,17 @@ export class EvalDashboardService {
       summaries.push(this.buildSummary(batchId, agent, runs));
     }
 
-    const recentBatches = summaries.slice(0, MAX_RECENT_BATCHES);
+    // A batch that's running but hasn't written a row yet is absent from
+    // `summaries` (built only from `runsForBatch`) — surface it separately so
+    // `recent_batches` reflects it without disturbing `current`/`delta`/
+    // `trend`, which stay anchored to the last real (row-backed) batches.
+    const runningId = batchRegistry.runningBatchId(agentId);
+    const runningVisible = summaries.some((s) => s.batch_id === runningId);
+    const recentBatches = (
+      runningId && !runningVisible
+        ? [this.runningPlaceholder(agent, runningId, casesTotal), ...summaries]
+        : summaries
+    ).slice(0, MAX_RECENT_BATCHES);
     // Trend is chronological (oldest → newest), bounded to TREND_WINDOW_BATCHES.
     const trend = summaries
       .slice(0, TREND_WINDOW_BATCHES)
@@ -133,6 +143,11 @@ export class EvalDashboardService {
         if (runs.length === 0) continue;
         summaries.push(this.buildSummary(batchId, agent, runs));
       }
+      const runningId = batchRegistry.runningBatchId(agent.id);
+      const lastBatch =
+        runningId && !summaries.some((s) => s.batch_id === runningId)
+          ? this.runningPlaceholder(agent, runningId, casesTotal)
+          : (summaries[0] ?? null);
       agentRows.push({
         agent_id: agent.id,
         agent_name: agent.name,
@@ -140,7 +155,7 @@ export class EvalDashboardService {
         model: agent.model,
         enabled: agent.enabled,
         cases_total: casesTotal,
-        last_batch: summaries[0] ?? null,
+        last_batch: lastBatch,
         recall_trend: summaries
           .slice()
           .reverse()
@@ -271,6 +286,37 @@ export class EvalDashboardService {
       cost_usd: costUsd,
       duration_ms: durationMs,
       status: batchRegistry.runningBatchId(agent.id) === batchId ? 'running' : 'complete',
+    };
+  }
+
+  /**
+   * A batch is registered in `batchRegistry` the instant it's triggered, but
+   * writes its first `eval_runs` row only once its FIRST case finishes (real
+   * LLM calls — can take seconds). Until then it has zero rows and is
+   * invisible to `runsForBatch`/`batchesForOwner`, so the dashboard would
+   * show no "running" indicator at all — while the server correctly 409s a
+   * second trigger attempt (AC-23) — leaving the UI looking idle while it's
+   * actually busy. This synthesizes a zero-progress placeholder so the
+   * running batch is visible immediately, not just once its first row lands.
+   */
+  private runningPlaceholder(agent: AgentRow, batchId: string, casesTotal: number): EvalBatchSummary {
+    return {
+      batch_id: batchId,
+      agent_id: agent.id,
+      agent_name: agent.name,
+      agent_version: agent.version,
+      ran_at: new Date().toISOString(),
+      cases_total: casesTotal,
+      cases_passed: 0,
+      recall: 1,
+      precision: 1,
+      citation_accuracy: 1,
+      recall_na: true,
+      precision_na: true,
+      citation_accuracy_na: true,
+      cost_usd: null,
+      duration_ms: 0,
+      status: 'running',
     };
   }
 }
