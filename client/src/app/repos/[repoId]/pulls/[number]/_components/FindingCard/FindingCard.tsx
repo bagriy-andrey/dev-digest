@@ -18,9 +18,39 @@ import {
   type Category,
 } from "@devdigest/ui";
 import type { FindingRecord, FindingActionKind } from "@devdigest/shared";
+import { useCreateEvalCaseFromFinding } from "@/lib/hooks/evals";
+import { notify } from "@/lib/toast";
 import { SEV_COLOR, SEV_COLOR_FALLBACK } from "./constants";
 import { lineLabel } from "./helpers";
 import { s } from "./styles";
+
+/* Split into its own child component (rather than calling the mutation hook
+   unconditionally at the top of FindingCard) so the hook — and the
+   QueryClientProvider it requires — is only ever instantiated for a DECIDED
+   finding, i.e. exactly when this action can render (AC-1/AC-2). An undecided
+   finding's FindingCard never mounts this component, so callers that render
+   FindingCard with only undecided fixtures (e.g. FindingsPanel's tests) don't
+   need a QueryClientProvider or a mock for this hook. */
+function TurnIntoEvalCaseAction({ findingId }: { findingId: string }) {
+  const t = useTranslations("prReview");
+  const createEvalCase = useCreateEvalCaseFromFinding();
+  return (
+    <Button
+      kind="ghost"
+      size="sm"
+      icon="FlaskConical"
+      disabled={createEvalCase.isPending}
+      loading={createEvalCase.isPending}
+      onClick={() =>
+        createEvalCase.mutate(findingId, {
+          onSuccess: () => notify.success(t("finding.evalCaseCreated")),
+        })
+      }
+    >
+      {t("finding.turnIntoEvalCase")}
+    </Button>
+  );
+}
 
 export function FindingCard({
   f,
@@ -113,6 +143,7 @@ export function FindingCard({
             >
               {t("finding.dismiss")}
             </Button>
+            {muted && <TurnIntoEvalCaseAction findingId={f.id} />}
           </div>
         </div>
       )}

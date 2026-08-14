@@ -21,7 +21,7 @@
     "skills": "Skills",
     "agents": "Agents",
     "conventions": "Conventions",
-    "eval": "Eval Dashboard",
+    "eval-dashboard": "Eval Dashboard",
     "memory": "Memory",
     "multi-agent": "Multi-Agent Review",
     "agent-performance": "Agent Performance",

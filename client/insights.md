@@ -21,6 +21,8 @@
 - `setTimeout` without `clearTimeout` cleanup (found in `RunTraceDrawer.copyRaw`) can trigger state updates on unmounted components. Always pair `setTimeout` with a `useRef` + cleanup.
 - Mocking a TanStack Query hook (e.g. `vi.mock("@/lib/hooks/smart-diff", () => ({ useSmartDiff: () => useSmartDiffMock() }))`) with a **module-level mutable `let` variable** that different `it()` blocks reassign, combined with `await import("./Component")` INSIDE each test, produces flaky "multiple elements found" failures — but only when the whole suite runs together, not in isolation (timing-dependent, not deterministic). Fix: use a static top-level `import { Component } from "./Component"` (mocks are hoisted, so this still respects `vi.mock`) plus a real `vi.fn()` whose return value is set per-test via `mockReturnValue(...)` and reset in `afterEach`. Mirrors the existing `RunReviewDropdown.test.tsx` pattern — follow it instead of dynamic `import()` + shared closures.
 
+- **2026-08-05: `pnpm typecheck` and `pnpm test` passing is NOT proof a value import from `@devdigest/shared` will actually build in Next.js dev/prod.** `src/vendor/shared/**`'s own cross-file imports use an explicit `.js` extension pointing at a sibling `.ts` file (e.g. `contracts/eval-ci.ts` doing `import { Severity } from './findings.js'`) — valid under tsconfig's `moduleResolution: "Bundler"`, so `tsc` is happy, and Vitest (esbuild/vite transform) resolves it fine too. Webpack (Next.js's dev/build bundler) does NOT: its default resolver only tries the literal extension on an explicit request, never falling back from `.js` to `.ts` unless `resolve.extensionAlias` is configured — and this repo's `next.config.mjs` never had it, because **every prior client import of `@devdigest/shared` was `import type`**, erased entirely before reaching webpack (`lib/types.ts`'s whole re-export hub is `export type` only — see "What Works" above). The first RUNTIME (value) import — `EvalsTab/helpers.ts` importing the `EvalExpectations` Zod schema itself, not just its inferred type, to call `.safeParse` on user input — was the first time webpack ever had to actually bundle `vendor/shared/index.ts`'s real code, and it failed with `Module not found: Can't resolve './contracts/findings.js'` despite the file genuinely existing, clean typecheck, and all tests green. Fixed in `next.config.mjs` via `webpack: (config) => { config.resolve.extensionAlias = {'.js': ['.ts', '.tsx', '.js']}; return config; }`. ⇒ Before merging ANY new runtime (non-type-only) import from `@devdigest/shared`, actually load the page in the dev server (or `pnpm build`) — typecheck and Vitest both use a different resolver than webpack and cannot catch this class of bug.
+
 ## Codebase Patterns
 
 - `@/` path alias (`src/*`) is configured in tsconfig but inconsistently used: top-level `app/` files use it, deeply nested `_components` often fall back to relative paths. Convention: always use `@/` for anything outside the immediate component folder.
@@ -65,6 +67,33 @@
   this the same as vendored `shared` contracts (hand-edited in place per AGENTS.md's cross-cutting
   note), not as an off-limits third-party file, since `nav.ts` is first-party route/shortcut
   config, not a component implementation.
+
+- **A confirmed instance of the above going wrong, not just being incomplete: `nav.ts`'s Eval
+  Dashboard entry is `{ key: "eval-dashboard", ..., href: "/eval" }`, but `activeKeyFor()`
+  (`app-shell/helpers.ts`) has `if (pathname.startsWith("/eval")) return "eval";` — a DIFFERENT
+  key string.** Both exist today; neither is missing. The sidebar item can never highlight when
+  a user is on any `/eval*` route, because `Sidebar.tsx` compares the NAV item's own `key` against
+  whatever `activeKeyFor` returns, and `"eval-dashboard" !== "eval"`. No error, no console warning —
+  the route works, the page renders, only the highlight silently never activates. ⇒ When a nav
+  item and its `activeKeyFor` branch are both pre-written ahead of the page (the common pattern
+  noted above), diff the exact key STRING on both sides, not just whether both exist — matching
+  substrings (`"eval"` vs `"eval-dashboard"`) are exactly the kind of near-miss that passes a quick
+  glance.
+
+- **2026-08-05: the same `"eval"` vs `"eval-dashboard"` near-miss had a THIRD, more severe instance
+  — a runtime i18n crash, not a silent no-op.** `useShellCommands.ts` (command palette) builds one
+  entry per NAV item via `t(\`nav.${it.key}\`)`, a DYNAMIC key lookup keyed off the NAV item's actual
+  `key` field. `messages/en/shell.json`'s `nav` block had `"eval": "Eval Dashboard"` — matching
+  neither the NAV item's real key (`"eval-dashboard"`) nor `activeKeyFor`'s already-fixed return
+  value. Unlike the `activeKeyFor` case (silent, no console output), this one throws
+  `IntlError: MISSING_MESSAGE` in the browser console on every `AppShell` mount (`useMemo` iterates
+  the full NAV list unconditionally, not just when the Eval route is visited) — confirmed via a real
+  user's devtools screenshot. Fixed by renaming the `shell.json` key to `"eval-dashboard"` (grepped
+  first: the only consumer of any `nav.<key>` message is this one dynamic lookup — safe rename, not
+  an add-alongside). ⇒ **Any place in this codebase that reads a NAV item's `.key` field — not just
+  `activeKeyFor`, whichever file does `t(...it.key...)` or a bespoke comparison — needs the same
+  exact-string audit.** `grep -rn "it\.key\|\.key\`" client/src/components/app-shell client/src/vendor/ui/shell`
+  to enumerate all current consumers before trusting any NAV-derived key elsewhere.
 
 ## Recurring Errors & Fixes
 
@@ -269,3 +298,89 @@
   `--warn`/`--ok` theme CSS vars `SeverityBadge` draws from (colour + a distinct icon per level:
   `AlertOctagon`/`AlertTriangle`/`CheckCircle`) so it stays on-theme and satisfies the
   colour-plus-non-colour-cue a11y requirement without a new hardcoded palette.
+
+- 2026-07-29 (SPEC-03 eval pipeline, step 6): `Agent` is likewise NOT in `lib/types.ts`'s
+  re-export allowlist (only the new `Eval*`/`AgentVersion` names were added there for this
+  feature) — a hook file (`hooks/evals.ts`) that needs `Agent` for a mutation's return type
+  must import it from `@devdigest/shared` directly, mirroring the existing convention already
+  used by `hooks/agents.ts`, not from `../types`. Confirms the 2026-07-16 entry above generalizes
+  beyond `Brief`/`Risk`.
+- 2026-07-29: jsdom's `HTMLDivElement.isContentEditable` reads back as `undefined`, not `false`
+  (unlike a real browser). `app-shell/helpers.ts`'s `isTextInput` does
+  `!!node && (tagName === 'INPUT' || tagName === 'TEXTAREA' || node.isContentEditable)` — for a
+  plain, non-editable `<div>` this makes the whole `||` chain evaluate to `undefined` (the last
+  falsy operand), not `false`, under jsdom/vitest. The function's real callers only use it in a
+  boolean context (`if (isTextInput(...))`) so this is harmless in production, but a unit test
+  asserting `.toBe(false)` on a non-input element will fail in this test environment — assert
+  `.toBeFalsy()` instead when testing this helper (or any helper with the same `||`-chain-ending-
+  in-a-DOM-boolean-property shape).
+- 2026-07-29: TanStack Query v5's `refetchInterval` option accepts a function of the query object
+  (`(query) => query.state.data?.someField === 'running' ? intervalMs : false`), not just a static
+  number/`false` — use this to poll only while a resource is in an active/running state (e.g. an
+  eval batch's `status`) and stop automatically once it settles, rather than a `useEffect` +
+  manual `setInterval`/`clearInterval` or an always-on fixed interval.
+- 2026-07-29 (SPEC-03 eval pipeline, step 7): adding a NEW `useMutation`/`useQuery` call directly
+  inside an EXISTING, widely-consumed leaf component (`FindingCard`, rendered by `FindingsPanel`
+  and its own test suite) breaks every OTHER test that renders that leaf component without a
+  `QueryClientProvider` or a mock for the new hook — `FindingsPanel.test.tsx` (outside this step's
+  file list) started failing with "No QueryClient set" the moment `FindingCard` called
+  `useCreateEvalCaseFromFinding()` unconditionally at its top level, even though the button the
+  hook backs only ever renders conditionally. Fix that stays within a file-list-scoped step: extract
+  the action into its own child component that calls the hook, and only ever MOUNT that child
+  component when the condition holds (`{muted && <TurnIntoEvalCaseAction findingId={f.id} />}`)
+  instead of calling the hook unconditionally in the parent and conditionally rendering its JSX
+  output — since hooks only run for component instances that actually mount, a fixture that never
+  satisfies the condition (e.g. an undecided finding) never triggers the new hook, so unrelated
+  tests using only that fixture keep working with zero new mocks/providers. Also: for a toast fired
+  from a component that might be rendered (directly or via a parent) in a test with no
+  `<ToastProvider>` ancestor, use the module-level `notify.success/error(...)` bridge
+  (`lib/toast.tsx`) instead of the `useToast()` hook — `useToast()` throws
+  ("must be used within <ToastProvider>") the instant the component mounts, unconditionally,
+  regardless of whether the toast ever fires, whereas `notify` no-ops silently when no
+  `ToastProvider` has mounted. `DiffTab.tsx` already uses `notify` directly for this exact reason;
+  `ConfigTab.tsx`'s `useToast()` pattern is only safe there because `AgentEditor.test.tsx` already
+  wraps its render tree in a real `<ToastProvider>`.
+- 2026-07-29 (SPEC-03 eval pipeline, step 8 — Evals tab + case editor): three non-obvious things
+  hit building the Evals tab. (1) **`EvalDashboard.current` (the aggregate `useAgentEvalDashboard`
+  returns) has NO `recall_na`/`precision_na`/`citation_accuracy_na` fields** — only
+  `EvalBatchSummary` (a single batch row) carries the D1/AC-18 `_na` flags. Feeding `MetricStrip`
+  from the dashboard's `current` object therefore always passes `na: false` (or omits it); do not
+  assume every metric-shaped object in this feature carries `_na` — check the specific contract.
+  (2) **Importing a zod schema VALUE (not just its inferred type) from `@devdigest/shared` is the
+  right call for validating USER INPUT** (e.g. the case editor's hand-edited `expected_output` JSON
+  textarea, via `EvalExpectations.safeParse`) — this does NOT contradict the "client never
+  re-validates API responses with zod" convention (`lib/api.ts` uses plain TS generics), because
+  that convention is about trusting the server's response, not about validating something the user
+  is actively typing before it's sent. (3) **`GET /agents/:id/eval-runs` has no `case_id` filter** —
+  it returns every run for the agent; to show "last run" per case (row summaries, the case editor's
+  status strip) you must group `EvalRunRecord[]` by `case_id` and take the max `ran_at` client-side.
+  Also: `@devdigest/ui`'s `Textarea`/`TextInput` primitives don't spread arbitrary HTML props (no
+  `...rest`, no `data-testid` passthrough) — in RTL tests, locate them via
+  `getByDisplayValue(/some distinctive substring/)` instead.
+- 2026-07-29 (SPEC-03 eval pipeline, step 9 — `/eval` + `/eval/[agentId]` + CompareModal): the
+  vendored `Checkbox` (`vendor/ui/kit/Checkbox.tsx`) has NO `disabled` prop — it's a fixed
+  `checked`/`onChange`/`label` signature. For a max-N-selection constraint (AC-27's "prevent
+  selecting a third"), don't rely on wrapping it in a `pointerEvents: "none"` style to block the
+  click: jsdom/RTL's `fireEvent.click` does not implement CSS `pointer-events` at all, so a test
+  clicking a capped-out checkbox would still fire `onClick` regardless of that wrapper style. The
+  only real prevention has to be in the state-update logic itself — a pure `toggleSelection(prev,
+  id, checked)` helper that no-ops (returns the same array reference) once `prev.length >= max`
+  when `checked` is true, always allows unchecking. Keep the `pointerEvents`/`opacity` wrapper only
+  as a visual affordance, not the actual guard, and unit-test the pure helper directly rather than
+  asserting on inert CSS.
+- 2026-07-29: a component that calls `useToast()` (`lib/toast.tsx`) throws
+  `"useToast must be used within <ToastProvider>"` if a test renders it without wrapping in the
+  real `<ToastProvider>` — mocking `@/lib/toast` isn't necessary/worth it, `ToastProvider` itself
+  has no network/timers-that-matter for a synchronous render, so just wrap the test's render tree
+  in the real provider (`<ToastProvider>{ui}</ToastProvider>`), same as
+  `AgentEditor.test.tsx` already does.
+- 2026-07-29: when `Edit`'s `old_string` for a JSON message file spans two sibling blocks (e.g. the
+  tail of one top-level key plus the following key's opening brace, to disambiguate a duplicate
+  line), double-check which block the *new* key actually lands inside afterward — an insertion
+  placed right before a `},\n  "nextBlock": {` boundary line is easy to accidentally leave inside
+  the FIRST block instead of the second. Caught here because a component's `t("compare.
+  compareAction")` call resolved to the untranslated key string at runtime (next-intl's fallback)
+  even though the JSON parsed fine and had a same-named key — it had landed one nesting level up,
+  inside `"workspace"` instead of `"compare"`. `next-intl`'s missing-key behavior is a silent
+  fallback to the raw key path, not a build/typecheck error, so this only surfaces at
+  render/test time, never at `pnpm typecheck`.

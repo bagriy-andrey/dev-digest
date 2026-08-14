@@ -53,6 +53,14 @@ export interface ConfigChangePatch {
   strategy?: ReviewStrategy;
   ciFailOn?: CiFailOn;
   repoIntel?: boolean;
+  /** Ordered linked-skill ids. Order matters — see `AgentVersionConfig.skills`. */
+  skillIds?: string[];
+}
+
+/** Length + element-wise comparison of two ORDERED id lists (order matters). */
+function sameOrderedIds(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((id, i) => id === b[i]);
 }
 
 /**
@@ -70,7 +78,7 @@ export function isConfigChange(
     | 'strategy'
     | 'ciFailOn'
     | 'repoIntel'
-  >,
+  > & { skillIds?: string[] },
   patch: ConfigChangePatch,
 ): boolean {
   return (
@@ -82,6 +90,9 @@ export function isConfigChange(
     (patch.strategy !== undefined && patch.strategy !== existing.strategy) ||
     (patch.ciFailOn !== undefined && patch.ciFailOn !== existing.ciFailOn) ||
     (patch.repoIntel !== undefined && patch.repoIntel !== existing.repoIntel) ||
-    patch.outputSchema !== undefined
+    patch.outputSchema !== undefined ||
+    (patch.skillIds !== undefined &&
+      existing.skillIds !== undefined &&
+      !sameOrderedIds(patch.skillIds, existing.skillIds))
   );
 }

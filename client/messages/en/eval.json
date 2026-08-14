@@ -1,4 +1,7 @@
 {
+  "common": {
+    "notApplicable": "Not applicable — no cases exercised this metric yet"
+  },
   "dashboard": {
     "defaultTitle": "Eval Dashboard",
     "loading": "Loading eval metrics…",
@@ -20,6 +23,9 @@
       "citation": "Citation"
     },
     "table": {
+      "case": "Case",
+      "version": "Version",
+      "status": "Status",
       "ranAt": "Ran at",
       "recall": "Recall",
       "precision": "Precision",
@@ -28,7 +34,25 @@
       "cost": "Cost"
     },
     "pass": "pass",
-    "fail": "fail"
+    "fail": "fail",
+    "neverRun": "Never run",
+    "batchHistory": "Batch history",
+    "errorTitle": "Couldn't load this agent's eval dashboard",
+    "errorBody": "The eval dashboard could not be loaded.",
+    "movement": {
+      "recall": {
+        "up": "Recall is up {delta}pt since the previous batch.",
+        "down": "Recall is down {delta}pt since the previous batch."
+      },
+      "precision": {
+        "up": "Precision is up {delta}pt since the previous batch.",
+        "down": "Precision is down {delta}pt since the previous batch."
+      },
+      "citation": {
+        "up": "Citation accuracy is up {delta}pt since the previous batch.",
+        "down": "Citation accuracy is down {delta}pt since the previous batch."
+      }
+    }
   },
   "caseEditor": {
     "newCase": "New eval case",
@@ -42,6 +66,7 @@
     "inputLabel": "Input",
     "tabs": {
       "diff": "Diff",
+      "files": "Files",
       "prMeta": "PR meta"
     },
     "diffPlaceholder": "--- a/src/config.ts\n+++ b/src/config.ts\n@@ -10,6 +10,7 @@\n+  stripeKey: \"sk_live_...\"",
@@ -49,13 +74,21 @@
     "titlePlaceholder": "Add Stripe integration",
     "bodyLabel": "Body",
     "bodyPlaceholder": "Wire up payments via Stripe SDK.",
+    "noFilesRecorded": "No files recorded for this case.",
     "preview": "Preview",
     "expectedOutput": "Expected output",
     "validJson": "valid JSON",
     "invalidJson": "invalid JSON",
+    "notesLabel": "Notes",
+    "notesPlaceholder": "Why this case matters, or anything future editors should know.",
     "lastRunPassed": "Last run passed",
     "lastRunFailed": "Last run failed",
-    "resultSummary": "recall {recall}% · precision {precision}% · citation {citation}% · {duration}s"
+    "resultSummary": "recall {recall}% · precision {precision}% · citation {citation}% · {duration}s",
+    "insertSkeleton": "+ Finding skeleton",
+    "validationError": "Invalid expected output: {message}",
+    "runOnSave": "Run on save",
+    "deleteConfirm": "Delete this eval case? This also deletes its run history.",
+    "cancel": "Cancel"
   },
   "evalsTab": {
     "metricsTitle": "Eval metrics",
@@ -71,7 +104,47 @@
     "run": "Run",
     "running": "Running…",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "runAll": "Run all evals",
+    "runAllConfirm": "Run all {count, plural, one {# eval case} other {# eval cases}} for this agent?",
+    "failureReason": "Failure: {reason}",
+    "expectedGot": "Expected {expected} · Got {got}"
+  },
+  "workspace": {
+    "title": "Eval Dashboard",
+    "columns": {
+      "agent": "Agent",
+      "model": "Model",
+      "lastBatch": "Last batch",
+      "recall": "Recall",
+      "precision": "Precision",
+      "citation": "Citation"
+    },
+    "runAllAgents": "Run all agents",
+    "runAllConfirm": "Run eval cases for every enabled agent? {count, plural, one {# case} other {# cases}} total.",
+    "empty": "No enabled agents with eval cases yet.",
+    "batchLabel": "v{version} · {date} · {passed}/{total} pass",
+    "errorTitle": "Couldn't load the eval dashboard",
+    "errorBody": "The workspace eval dashboard could not be loaded."
+  },
+  "compare": {
+    "title": "Compare batches",
+    "compareAction": "Compare",
+    "older": "Older",
+    "newer": "Newer",
+    "systemPrompt": "System prompt",
+    "promote": "Promote v{version}",
+    "promoteDisabled": "This version's config was not recorded and can't be promoted.",
+    "versionNotRecorded": "Version not recorded",
+    "caseSetDiffers": "{count, plural, one {# case is} other {# cases are}} only in this batch — metrics aren't directly comparable.",
+    "selectTwo": "Select two batches to compare.",
+    "maxTwoSelected": "You can only compare two batches at a time."
+  },
+  "batch": {
+    "running": "Running",
+    "complete": "Complete",
+    "casesQueued": "{count, plural, one {# case} other {# cases}} queued",
+    "alreadyRunning": "A batch is already running for this agent."
   },
   "page": {
     "crumbSkillsLab": "Skills Lab",

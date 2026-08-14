@@ -9,6 +9,23 @@
 
 ## What Doesn't Work
 
+- **A root-level orchestration script (e.g. `package.json`'s `verify:l06`, added for the Eval
+  Pipeline feature) must invoke `reviewer-core` via `npm --prefix reviewer-core`, never `pnpm --dir
+  reviewer-core` — mixing package managers across this repo's 5 independently-lockfiled packages
+  breaks silently, not loudly.** `reviewer-core` is the one package that uses `npm`/`package-lock.json`
+  (already documented in `server/insights.md` re: `pnpm install` there fabricating a stray
+  `pnpm-lock.yaml`/`pnpm-workspace.yaml`) — but the same failure isn't limited to an explicit
+  `pnpm install`: running ANY `pnpm --dir reviewer-core <script>` (e.g. `typecheck`) triggers pnpm's
+  own pre-run dependency-status check, which fabricates the same stray lockfile/workspace files and
+  can additionally hit pnpm's build-script-approval gate (`[ERR_PNPM_IGNORED_BUILDS]` for
+  `esbuild`) — a hard failure with a confusing error, not an obvious "wrong package manager" message.
+  Fixed in `verify:l06` by switching to `npm --prefix reviewer-core run typecheck` / `npm --prefix
+  reviewer-core test`; the stray `reviewer-core/pnpm-lock.yaml`/`pnpm-workspace.yaml` files must be
+  deleted (git-untracked, safe to remove) if this is ever hit again. ⇒ Any future root-level script
+  spanning this repo's packages must pick `npm --prefix <dir>` vs `pnpm --dir <dir>` per-package
+  based on which lockfile that package actually commits — never assume pnpm uniformly, despite 4 of
+  the 5 packages using it.
+
 ## Codebase Patterns
 
 - The **Planner/Implementer subagent pair** (`.claude/agents/planner.md`,
@@ -21,6 +38,10 @@
   file lists per step in the plan's Execution Order section. ⇒ Any future
   parallel-subagent orchestration in this repo needs that same constraint
   enforced at the planning stage, not assumed from git-worktree isolation.
+
+- **An `implementer` finishing a step and reporting file-by-file success does NOT mean its worktree has a commit** — on `/sdd-build`'s Eval Pipeline run (5 of 5 dispatched implementers so far), every single one left its changes staged-or-modified but **uncommitted** in its own worktree, despite fully completing its declared file list and reporting typecheck/test results. `git merge --no-ff <worktree-branch>` on an uncommitted worktree silently reports **"Already up to date"** (the branch tip genuinely has no new commit) — this looks like a no-op merge, not an error, so it's easy to mistake for "nothing to integrate" instead of "the work exists only in an uncommitted working tree." ⇒ Before merging any `implementer` worktree branch into the integration branch, always `cd` into that worktree and run `git status` first; if there are uncommitted changes, `git add` + `git commit` them there before merging — do not trust "already up to date" as proof a step produced no changes. This is now a required step in `/sdd-build`'s own integration procedure, not an edge case.
+
+- **Running `/sdd-build`'s tier-merge `git checkout <integration-branch>` / `git merge` steps directly in the user's live working directory can silently hang an already-running dev server that watches that same directory.** On this session's Eval Pipeline run, the user had `./scripts/dev.sh` running in another terminal (`tsx watch src/server.ts` + `next dev`) for the whole build. After several `git checkout`/`git merge --no-ff` cycles integrating 9 implementer branches into `eval-pipeline` in that same directory, the user's `tsx watch` process was still alive (correct PID, no crash, no error logged) but had never bound to port 3001 — `lsof -i :3001` showed nothing, `curl` timed out, and the client showed a generic "Cannot reach the DevDigest engine" error with no indication of the cause. A freshly-started `node`/`tsx` process in the same directory bound to 3001 immediately, proving the code/DB were fine — only the long-running watched process was stuck, almost certainly from `tsx watch`'s file-watcher choking on the burst of file creates/modifies/deletes a multi-branch merge produces underneath it while it's mid-restart. ⇒ Symptom to recognize: the watched process's PID is still alive and never crashed, but nothing is listening on its port — check `lsof -i :<port>` before assuming a code/DB problem; the fix is killing and restarting the stuck process (`./scripts/dev.sh` again), not debugging the app. Ideally stop the user's dev server before a `/sdd-build` run touches the shared working directory with git operations, and restart it after.
 
 - Per-run **cost is already computed by `reviewer-core`** end-to-end: `ReviewOutcome.costUsd`
   (number | null) comes from OpenRouter's `usage.cost` extension, with an injected
@@ -99,7 +120,20 @@
   needs correcting to a cheap/flash SKU — an existing registry entry existing is not evidence its
   default is sane.
 
-- **The Planner subagent was renamed `.claude/agents/planner.md` → `.claude/agents/implementation-planner.md`
+- **2026-07-28 addendum (Eval Pipeline, `specs/eval-pipeline.md`): a FOURTH confirmed instance,
+  and one new wrinkle — a mechanism built years-early with the consuming feature's name already
+  in its own code comment.** `eval_cases`/`eval_runs` tables (`server/src/db/schema/eval.ts`) and
+  their full Zod contracts (`EvalCase`/`EvalRun`/`EvalCaseInput`/`EvalRunRecord`/`EvalDashboard`
+  etc., both vendored copies) existed with zero readers/writers, same shape as Intent/Blast/
+  Smart-Diff/PrBrief above. The new wrinkle: `agents.version` + `agent_versions` (immutable config
+  snapshots on every agent edit) is not just unwired scaffolding but a FULLY WORKING, actively-used
+  mechanism (`GET /agents/:id/versions` already exists) whose own repository code comment says
+  *"config into agent_versions (reproducibility for eval)"* — i.e. a past lesson deliberately
+  over-built a working feature in anticipation of a not-yet-built later one, rather than leaving
+  dead scaffolding. ⇒ When auditing for "what already exists" on a new feature, don't assume every
+  precedent artifact is inert scaffolding — check whether an existing, fully-working mechanism in
+  an unrelated-looking module (here: agent config editing) was already built with this feature's
+  needs in mind, and reuse it as-is rather than building a parallel versioning/snapshot system.
   (frontmatter `name: implementation-planner`) and its scope was tightened: it never authors or
   redefines product requirements/specs, only turns already-defined requirements into a build
   breakdown.** It still writes to `<module>/specs/*.md` (that path convention didn't change) and
@@ -152,6 +186,32 @@
   unexplained symbol from a file absent from that list means `pr_files` is holding a stale
   snapshot, point first at whether `GITHUB_TOKEN` is set before assuming a client-cache/index
   problem.
+
+  **2026-07-29 addendum — a token that is SET but INVALID/EXPIRED hits the exact same silent
+  degradation path as an unset one, at the PR-LIST level, not just the single-PR `pr_files`
+  refresh.** `modules/pulls/routes.ts`'s `GET /repos/:id/pulls` wraps its GitHub sync in a try/catch
+  that only logs `app.log.warn({ err }, 'GitHub PR sync skipped (no token / offline); serving
+  persisted PRs')` — a 401 from a revoked/expired PAT is caught by this same generic handler as a
+  missing token would be, so the app never surfaces "your token is bad" anywhere in the UI; the only
+  observable symptom is "the app doesn't see fresh GitHub activity," identical to the unset-token
+  case above. ⇒ Before assuming `GITHUB_TOKEN` is simply unset, check it's actually valid: `node -e
+  "require('dotenv').config(); fetch('https://api.github.com/user', {headers:{Authorization:'Bearer
+  '+process.env.GITHUB_TOKEN,'User-Agent':'check'}}).then(r=>r.text()).then(console.log)"` from
+  `server/` — a `401 Bad credentials` response confirms an expired/revoked token, not a code bug.
+  `tsx watch` does NOT reload `.env` changes — after rotating the token, the server process must be
+  fully restarted, not just left to hot-reload.
+
+  **2026-08-05 addendum — a malformed `.env` line degrades identically to a missing/invalid token,
+  with no parse error.** A `server/.env` line like `<stray prose> GITHUB_TOKEN=ghp_xxx` (e.g. text
+  accidentally typed/pasted into the file while it was open in an editor, ahead of the `KEY=` token)
+  is silently skipped by `dotenv` — it doesn't match dotenv's `KEY=VALUE`-from-line-start pattern, so
+  `process.env.GITHUB_TOKEN` ends up `undefined`, hitting the exact same "sync skipped" code path as
+  an unset token, with zero indication the `.env` file itself is malformed rather than simply
+  unconfigured. The line can visually look fine at a glance (`GITHUB_TOKEN=ghp_...` is present
+  in the file) if the stray prefix is off-screen or easy to skim past. ⇒ When diagnosing "token
+  configured but sync still skipped," don't just check the value is present — confirm the line
+  itself starts exactly with `GITHUB_TOKEN=` (`grep -n '^GITHUB_TOKEN=' server/.env`), not just that
+  the substring appears somewhere on the line.
 
   **2026-07-12 second field confirmation — a brand-new PR-branch-only FILE is invisible even when
   `pr_files` is fully correct.** On the same real PR, after confirming `pr_files` matched GitHub
