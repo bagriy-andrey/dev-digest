@@ -136,6 +136,26 @@
   precedent artifact is inert scaffolding — check whether an existing, fully-working mechanism in
   an unrelated-looking module (here: agent config editing) was already built with this feature's
   needs in mind, and reuse it as-is rather than building a parallel versioning/snapshot system.
+- **2026-08-15 addendum (Multi-Agent Review spec grounding, `specs/SPEC-03-multi-agent-review.md`):
+  a FIFTH confirmed instance, with the contract's own JSDoc already documenting the feature's
+  business rule.** `server/src/vendor/shared/contracts/observability.ts` (mirrored in the client's
+  vendored copy) already defines `MultiAgentRun`/`AgentColumn`/`AgentColumnFinding`/`Conflict`/
+  `ConflictTake` (plus `AgentStats`/`StatPoint`/`CuratorMerge`/`CuratorResult` for a later,
+  still-unbuilt Per-Agent-Stats / memory-curator feature) — response shapes for
+  `POST /pulls/:id/multi-agent-run`, `GET /pulls/:id/multi-agent`, `GET /agents/:id/stats` —
+  attributed in the file's own header comment to a contributor "A5," with zero server routes or
+  client consumers anywhere in the repo. The `Conflict` type's JSDoc already states the cross-agent
+  grouping rule verbatim ("a file:line that at least one agent flagged and at least one other agent
+  that also reviewed did NOT, OR where agents assigned divergent severities") — the business-logic
+  decision was pre-recorded in a doc-comment, not just the response shape. Matches the
+  `multi_agent_runs` DB table stub (`id, workspace_id, pr_id, ran_at`, no FK to `agent_runs`) — same
+  unwired-scaffolding shape as Intent/Blast/PrBrief/Eval-Pipeline above. Separately (not part of the
+  pattern, but found in the same audit): `RunRequest` (`POST /pulls/:id/review` body) only supports
+  `{agentId}` (one) or `{all: true}` — no arbitrary-subset selection exists yet, needed for a
+  multi-select agent picker. ⇒ When scoping this feature, read the `Conflict`/`ConflictTake` JSDoc
+  as the authoritative match-rule spec before inventing a new one, and treat `AgentStats`/
+  `CuratorResult` as reserved names for a LATER feature, not something to build now.
+
   (frontmatter `name: implementation-planner`) and its scope was tightened: it never authors or
   redefines product requirements/specs, only turns already-defined requirements into a build
   breakdown.** It still writes to `<module>/specs/*.md` (that path convention didn't change) and

@@ -288,6 +288,20 @@
   on the actual migration files shows was already added and applied.
 - `cd server && pnpm typecheck` fails with `Cannot find module 'openai'/'zod'` inside `../reviewer-core/src/**` if `reviewer-core/node_modules` was never installed in that checkout/worktree. Server's `tsconfig.json` path-aliases `@devdigest/reviewer-core` straight to `../reviewer-core/src`, pulling reviewer-core's source (and its own `openai`/`zod` deps) into the server's `tsc` program; server's own `node_modules` does NOT satisfy that resolution since reviewer-core is a sibling package with its own lockfile, not a parent. Fix: `cd reviewer-core && npm install` once per checkout/worktree — reviewer-core is the one package of the four that uses `npm`/`package-lock.json`, NOT `pnpm` (confirmed by its committed `package-lock.json`; running `pnpm install` there instead fabricates a stray `pnpm-lock.yaml`/`pnpm-workspace.yaml` that should be deleted, not committed).
 
+- **`ReviewRunExecutor.executeRuns`/`runOneAgent` (`modules/reviews/run-executor.ts:108-135`) is NOT
+  parallel — it's a plain sequential `for (const { agent, runId } of jobs) { ... await
+  this.runOneAgent(...) }` loop.** Only per-agent FAILURE isolation (the try/catch around each job)
+  is real; nothing awaits multiple jobs concurrently, and there is no worktree isolation anywhere in
+  `server/src` either — the only "worktree" string match in the whole package is an unrelated
+  `git reset --hard` code comment in `adapters/git/simple-git.ts:79`. The single shared diff/intent
+  load before the loop is real reuse, but the fan-out itself is not. Found while spec'ing
+  `specs/SPEC-03-multi-agent-review.md` (originally written as "reuse: parallel execution already
+  works, fan-out via worktrees" in the source requirement doc — that claim is FALSE against the
+  actual code). ⇒ Any future feature assuming "agents already run in parallel" must verify against
+  this loop first; building real concurrency (e.g. `Promise.all`/a bounded pool over `jobs`, plus
+  deciding whether concurrent agents need actual filesystem/worktree isolation or can safely share
+  one read-only clone) is genuine net-new work on this file, not something to reuse as-is.
+
 ## Session Notes
 
 - 2026-06-22: added `findings_by_severity` to `PrMeta` + `GET /repos/:id/pulls` route; removed the prior "intentionally not surfaced" comment that blocked this.
