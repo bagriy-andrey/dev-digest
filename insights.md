@@ -28,6 +28,8 @@
 
 ## Codebase Patterns
 
+- **This checkout's git remote pointing at the course upstream (`ai-agentic-engineering-neo/dev-digest`) is named `course`, not `upstream`** — lesson docs/screenshots (e.g. the lesson-7 "how to pull in `agent-runner`" instructions) say `git fetch upstream` / `git checkout upstream/<branch> -- <dir>`, but this repo has three remotes (`course`, `ivan`, `origin`) and no `upstream` at all; running the doc's commands verbatim fails with "unknown revision." ⇒ When following course-lesson git instructions here, substitute the actual remote name — check `git remote -v` first rather than assuming `upstream` exists. ref: 2026-08-15 lesson-7 agent-runner pull.
+
 - The **Planner/Implementer subagent pair** (`.claude/agents/planner.md`,
   `.claude/agents/implementer.md`) relies on **disjoint file ownership per
   plan step**, not `isolation: worktree` alone, to make parallel Implementer
