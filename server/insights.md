@@ -475,6 +475,31 @@
   declared file list — a plan's step-boundary file lists can disagree with what that step's tests
   actually need to compile/run.
 
+- **The "overwrite a stored sibling field post-construction" hermetic-test trick (Codebase Patterns,
+  2026-07-16 entry) generalizes one level further than "sibling SERVICE instances": it works
+  identically for a service's own `private repo: SomeRepository` field, even though `Repository`
+  classes wrap `Db`/drizzle directly (not another service).** `CiExportService`/`CiIngestService`
+  (SPEC-04 step 3) both `new CiRepository(container.db)` inside their constructor and store it as
+  `this.repo` — exactly the shape the 07-16 entry requires ("this only works if the service STORES
+  each sibling as an instance field rather than `new`-ing it up inline inside the method body").
+  Hermetic tests build a fake `Container` (`agentsRepo`/`github`/`githubActions`/`config` as plain
+  object literals, `as unknown as Container` — `agentsRepo` isn't in `ContainerOverrides`, but
+  `github`/`githubActions` ARE and can be passed as normal container overrides in `.it.test.ts`
+  files) and then do `(service as unknown as { repo: StubRepo }).repo = { listMemory: vi.fn(...),
+  findInstallation: vi.fn(...), upsertInstallation: vi.fn(...) }` — zero real Postgres, zero drizzle
+  query-builder faking needed, despite `CiRepository` itself being a thin Drizzle wrapper. ⇒ Any
+  future service that internally constructs its own repository (not just another service) can be
+  hermetically tested the same way; don't assume a service-owned `Repository` field forces either a
+  real DB or a fake drizzle chain — overwrite the field.
+- **`readRunnerBundle` does a real `fs.readFileSync`, and `CiExportService.export` calls it
+  unconditionally (no injectable default parameter despite the plan text describing one) — a
+  hermetic `CiExportService` test needs a REAL (tiny, temp) file on disk, not just a mocked
+  `container.config`.** Faking `container.config.runnerBundlePath` to point at a nonexistent path
+  throws `ConfigError` before the rest of `export()` runs. Fixed with `mkdtempSync(os.tmpdir())` +
+  `writeFileSync(..., '// mock runner bundle\n')` in `beforeAll`/cleaned in `afterAll` — one real
+  but fully test-owned file, not a fake FS layer. The same fixture-file approach is needed for
+  `ci-export.it.test.ts` via `loadConfig({..., DEVDIGEST_RUNNER_BUNDLE: tmpBundlePath})`.
+
 ## Open Questions
 
 - API Contract Reviewer experiment (skills-off vs skills-on) not yet run — needs a breaking-change PR in a cloned repo + two review runs to compare.
