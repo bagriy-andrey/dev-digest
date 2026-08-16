@@ -499,3 +499,22 @@
   `/findings/:id/eval-case`, both create rows with zero LLM calls). Implemented with 3 rate-limited
   routes (matching the table, the actual ground truth), not 4 — worth a heads-up to whoever reviews
   this against the plan's prose.
+
+- 2026-08-16: Implemented `modules/multi-agent/` (SPEC-04/PLAN-04 step 2 —
+  `constants`/`helpers`/`repository`/`service`/`routes`, registered in
+  `modules/index.ts`) + the four `modules/reviews/` edits (`resolveTargets`'s
+  `agentIds` branch, `runReview`'s `opts.multiAgentRunId`, `createAgentRun`'s
+  new field in both the impl and the facade, and `executeRuns`' loop →
+  `Promise.allSettled` via an extracted `runJob` private method). One
+  composition wrinkle not covered by the `BriefService`-composition precedent
+  above: `ReviewRunExecutor`'s `Logger` type (the pino-shaped `{info,warn,
+  error,debug}` used by `runReview`/`start`) is defined and exported in
+  `modules/reviews/run-executor.ts`, but `modules/reviews/service.ts` only
+  imports it (`import { ReviewRunExecutor, type Logger } from
+  './run-executor.js'`) — it does NOT re-export it. A sibling module composing
+  `ReviewService` and wanting to type its own `logger?: Logger` parameter the
+  same way must import `Logger` from `../reviews/run-executor.js` directly,
+  not from `../reviews/service.js` (which would fail to resolve the type at
+  all, not just warn). Confirmed clean by `pnpm typecheck`; existing
+  `run-executor.test.ts` (single-job-per-test, so allSettled-vs-sequential is
+  unobservable there) needed zero changes — all 300 hermetic tests green.
