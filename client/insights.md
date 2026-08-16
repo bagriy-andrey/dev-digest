@@ -384,3 +384,26 @@
   inside `"workspace"` instead of `"compare"`. `next-intl`'s missing-key behavior is a silent
   fallback to the raw key path, not a build/typecheck error, so this only surfaces at
   render/test time, never at `pnpm typecheck`.
+
+- 2026-08-16 (SPEC-04 export-to-CI, step 4 — Export Wizard): two non-obvious traps building a
+  multi-step modal + its RTL tests. (1) **jsdom (v25, this repo's test env) has no
+  `URL.createObjectURL`** — `typeof URL.createObjectURL === "function"` is `false` under Vitest,
+  unlike a real browser. A component that triggers a client-side file download (e.g. `filesToZip`
+  → `URL.createObjectURL` → synthetic `<a download>` click) must guard that DOM call with a feature
+  check and let the pure blob-building step (here, `jszip`'s `generateAsync`) run regardless — Node's
+  global `Blob` DOES exist in this env, so the zip itself builds fine and is fully testable; only the
+  actual "save to disk" trigger needs the guard. Without it, clicking the download button throws in
+  every test that exercises it. (2) **Two sibling message keys that legitimately hold the identical
+  English string (e.g. a wizard step's `steps.install: "Install"` label and that same step's own
+  primary button `install: "Install"`, or a card's title matching its own action button's label)
+  render as duplicate DOM text nodes whenever both are mounted at once** — `screen.getByText(...)`
+  throws "found multiple elements" even though the copy is intentional and not a bug. Two fixes,
+  chosen per case: give one of the two a genuinely distinct string (e.g. button "Download zip" vs.
+  card title "Copy files as a zip") when they're pure duplication with no reason to match; or switch
+  the test query to something more specific than raw text (`getByRole("button", { name: ... })`,
+  `getAllByText(...)[0]`) when the duplication is legitimate (e.g. a file path shown both in a list
+  row and as the selected file's code-view label). Don't reflexively rename copy just to satisfy
+  `getByText` — check whether the duplication is real UI redundancy (a bug, worth fixing at the
+  component level, e.g. this step's `TargetStep` originally repeated "Target" as both the modal's
+  step-header label AND a redundant section `FormField` label inside the step body — removed) versus
+  intentional (query needs to be more specific instead).
