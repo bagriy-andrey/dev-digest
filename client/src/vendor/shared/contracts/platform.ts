@@ -339,6 +339,8 @@ export type ContextFileContent = z.infer<typeof ContextFileContent>;
 export const RunRequest = z.object({
   agentId: z.string().optional(),
   all: z.boolean().optional(),
+  /** Arbitrary subset (multi-agent). Takes precedence over agentId/all. */
+  agentIds: z.array(z.string()).optional(),
 });
 export type RunRequest = z.infer<typeof RunRequest>;
 

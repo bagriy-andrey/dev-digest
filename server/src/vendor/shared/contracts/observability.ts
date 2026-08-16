@@ -85,6 +85,22 @@ export const MultiAgentRun = z.object({
 });
 export type MultiAgentRun = z.infer<typeof MultiAgentRun>;
 
+// ------------------------------------------------------------------
+// Pre-run estimates (GET /multi-agent/estimates)
+// NOTE: deliberately NOT AgentStats — that name belongs to the
+// out-of-scope Per-Agent Stats feature and must stay unimplemented.
+// ------------------------------------------------------------------
+export const AgentRunEstimate = z.object({
+  agent_id: z.string(),
+  agent_name: z.string(),
+  /** How many completed runs the averages are taken over (0..5). 0 ⇒ no history. */
+  runs_sampled: z.number().int(),
+  /** null ⇒ no history; the UI renders "—" and excludes it from the aggregate. */
+  avg_duration_ms: z.number().int().nullable(),
+  avg_cost_usd: z.number().nullable(),
+});
+export type AgentRunEstimate = z.infer<typeof AgentRunEstimate>;
+
 // ---------------------------------------------------------------------------
 // Per-agent Stats (GET /agents/:id/stats)
 // ---------------------------------------------------------------------------
