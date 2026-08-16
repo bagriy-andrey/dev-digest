@@ -64,6 +64,16 @@ export type {
   AgentVersion,
 } from "@devdigest/shared";
 
+export type {
+  CiTarget,
+  CiFile,
+  CiExportInput,
+  CiInstallation,
+  CiExport,
+  CiRun,
+  CiRunStatus,
+} from "@devdigest/shared";
+
 /**
  * `GET /pulls/:id/blast`'s actual response shape: the `BlastRadius` contract
  * plus transport-only degraded fields the route adds locally (server never
