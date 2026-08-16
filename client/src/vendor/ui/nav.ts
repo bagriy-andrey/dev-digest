@@ -25,6 +25,10 @@ export const NAV: NavGroup[] = [
       { key: "pulls", label: "Pull Requests", icon: "GitPullRequest", href: "/repos/:repoId/pulls", gKey: "p" },
       { key: "context", label: "Project Context", icon: "FileText", href: "/repos/:repoId/context" },
       { key: "onboarding-tour", label: "Onboarding Tour", icon: "Workflow", href: "/repos/:repoId/onboarding" },
+      // No :repoId token — this is a workspace-level route (D-key must match
+      // `activeKeyFor`'s "multi-agent" branch AND messages/en/shell.json's
+      // `nav["multi-agent"]` exactly; see client/insights.md's nav section).
+      { key: "multi-agent", label: "Multi-Agent Review", icon: "Users", href: "/multi-agent" },
     ],
   },
   {
