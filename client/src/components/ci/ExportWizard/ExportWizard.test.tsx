@@ -9,10 +9,12 @@ import type { CiExport, CiFile } from "@/lib/types";
 // `let` + dynamic `import()`, which is flaky under this repo's full suite.)
 const useCiInstallationsMock = vi.fn();
 const useExportCiMock = vi.fn();
+const useReposMock = vi.fn();
 
 vi.mock("@/lib/hooks", () => ({
   useCiInstallations: (...args: unknown[]) => useCiInstallationsMock(...args),
   useExportCi: (...args: unknown[]) => useExportCiMock(...args),
+  useRepos: (...args: unknown[]) => useReposMock(...args),
 }));
 
 import { ExportWizard } from "./ExportWizard";
@@ -50,8 +52,14 @@ function exportResult(overrides: Partial<CiExport> = {}): CiExport {
   };
 }
 
+const CONNECTED_REPOS = [
+  { id: "r1", workspace_id: "w1", owner: "acme", name: "payments-api", full_name: REPO },
+  { id: "r2", workspace_id: "w1", owner: "acme", name: "billing-worker", full_name: "acme/billing-worker" },
+];
+
 function mockDefaults() {
   useCiInstallationsMock.mockReturnValue({ data: [] });
+  useReposMock.mockReturnValue({ data: CONNECTED_REPOS, isSuccess: true });
   useExportCiMock.mockReturnValue({
     mutate: vi.fn((_vars, opts) => opts?.onSuccess?.(exportResult())),
     isPending: false,
@@ -66,10 +74,12 @@ function renderWizard() {
   );
 }
 
-function fillRepo(value: string) {
-  fireEvent.change(screen.getByPlaceholderText(ciMessages.exportWizard.repoPlaceholder), {
-    target: { value },
-  });
+/** Opens the repo SearchableSelect, filters, and picks `fullName`. */
+function fillRepo(fullName: string) {
+  fireEvent.click(screen.getByText(ciMessages.exportWizard.repoSearch));
+  const input = screen.getByPlaceholderText(ciMessages.exportWizard.repoSearch);
+  fireEvent.change(input, { target: { value: fullName } });
+  fireEvent.click(screen.getByRole("button", { name: fullName }));
 }
 
 function clickContinue() {
@@ -86,14 +96,12 @@ describe("ExportWizard", () => {
     expect(screen.getByText(ciMessages.exportWizard.steps.install)).toBeInTheDocument();
   });
 
-  it("fetches no repo list — useCiInstallations is called unfiltered, and the repo field is free text", () => {
+  it("useCiInstallations is called unfiltered, and the repo field is a dropdown of connected repos", () => {
     mockDefaults();
     renderWizard();
     expect(useCiInstallationsMock).toHaveBeenCalledWith();
-    const input = screen.getByPlaceholderText(ciMessages.exportWizard.repoPlaceholder);
-    expect(input.tagName).toBe("INPUT");
     fillRepo(REPO);
-    expect(screen.getByDisplayValue(REPO)).toBeInTheDocument();
+    expect(screen.getByText(REPO)).toBeInTheDocument();
   });
 
   it("Continue is disabled for a non-GHA target even with a valid repo (AC-26)", () => {
@@ -192,7 +200,7 @@ describe("ExportWizard", () => {
     // Back to Preview, back to Target.
     fireEvent.click(screen.getByText(ciMessages.exportWizard.back));
     fireEvent.click(screen.getByText(ciMessages.exportWizard.back));
-    expect(screen.getByDisplayValue(REPO)).toBeInTheDocument();
+    expect(screen.getByText(REPO)).toBeInTheDocument();
 
     // Forward again — the reopened trigger is still checked.
     clickContinue(); // → Preview

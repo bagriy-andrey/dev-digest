@@ -1,11 +1,14 @@
 "use client";
 
 /* TargetStep — target picker (GHA recommended; the rest disabled/"not
-   available yet") + a plain free-text `owner/name` repo field. Deliberately
-   NO repo picker / repo-list fetch (AC-25, resolved clarification 9). */
+   available yet") + the destination repo, picked from repos already
+   connected to this workspace (a `SearchableSelect` fed by `useRepos()`,
+   the same combobox `ConfigTab` uses for its model picker) rather than
+   free-typed. */
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Badge, Checkbox, FormField, Icon, TextInput } from "@devdigest/ui";
+import { Badge, Checkbox, FormField, Icon, SearchableSelect } from "@devdigest/ui";
+import { useRepos } from "@/lib/hooks";
 import type { CiInstallation, CiTarget } from "@/lib/types";
 import { SUPPORTED_TARGET, TARGET_OPTIONS } from "../constants";
 import { isValidRepo } from "../helpers";
@@ -35,6 +38,11 @@ export function TargetStep({
   const t = useTranslations("ci");
   const repoTouched = repo.trim().length > 0;
   const repoValid = isValidRepo(repo);
+  const { data: repos, isSuccess: reposLoaded } = useRepos();
+  const repoOptions = [...(repos ?? [])]
+    .map((r) => r.full_name)
+    .sort((a, b) => a.localeCompare(b));
+  const noRepos = reposLoaded && repoOptions.length === 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -71,12 +79,16 @@ export function TargetStep({
         </div>
       </div>
 
-      <FormField label={t("exportWizard.repoLabel")} hint={t("exportWizard.repoHint")} required>
-        <TextInput
+      <FormField
+        label={t("exportWizard.repoLabel")}
+        hint={noRepos ? t("exportWizard.repoEmptyHint") : t("exportWizard.repoHint")}
+        required
+      >
+        <SearchableSelect
           value={repo}
           onChange={onRepoChange}
-          placeholder={t("exportWizard.repoPlaceholder")}
-          mono
+          options={repoOptions}
+          placeholder={t("exportWizard.repoSearch")}
         />
         {repoTouched && !repoValid && (
           <div style={{ fontSize: 12, color: "var(--crit)", marginTop: 6 }}>
