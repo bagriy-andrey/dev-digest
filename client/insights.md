@@ -264,7 +264,22 @@
   need `BlastRadiusCard` to cap/paginate/virtualize its own symbol list, out of scope for
   a layout-parity fix.
 
-## Open Questions
+- **2026-08-16 — Export Wizard's `TargetStep` repo field: free-text → `SearchableSelect`, a
+  post-hoc reversal of a deliberate spec decision.** SPEC-04's clarification 9 explicitly chose a
+  plain `owner/name` `TextInput` over a repo picker as the "simplest workable option" — the
+  component's own header comment said so verbatim. The user later looked at the shipped wizard and
+  asked for exactly the picker that was deliberately deferred. Swapped to `SearchableSelect` fed by
+  `useRepos()` (`client/src/lib/hooks/core.ts`, `GET /repos`, already workspace-scoped
+  server-side — no extra plumbing needed), mirroring `ConfigTab`'s model picker
+  (`useProviderModels` → `SearchableSelect`) byte-for-byte in shape: `FormField` whose `hint` swaps
+  to an empty-state message (`isSuccess && options.length === 0`) instead of an inline error, same
+  as `ConfigTab`'s `noModels` branch. ⇒ Two takeaways: (1) **this codebase already has a reusable
+  "async-hook → `SearchableSelect` → `FormField`-hint-swaps-on-empty" pattern** — before building
+  any new dropdown-of-server-data field, grep for an existing `SearchableSelect` consumer
+  (`ConfigTab.tsx` is the canonical one) and copy its shape rather than inventing prop plumbing.
+  (2) A spec's "simplest option, deferred until real usage shows it's needed" resolution is
+  explicitly provisional, not a permanent constraint — when a user later asks for exactly the
+  deferred alternative, that's the mechanism working as intended, not scope creep to push back on.
 
 - **RESOLVED 2026-07-09** — both gaps closed, see the matching Session Notes entry below
   (`server/specs/blast-radius-gaps.md`). Left below for historical context, not still open.
