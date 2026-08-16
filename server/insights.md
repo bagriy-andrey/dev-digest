@@ -289,6 +289,26 @@
   snapshot-metadata bug will make the first run propose a change to a column that a `git log`
   on the actual migration files shows was already added and applied.
 - `cd server && pnpm typecheck` fails with `Cannot find module 'openai'/'zod'` inside `../reviewer-core/src/**` if `reviewer-core/node_modules` was never installed in that checkout/worktree. Server's `tsconfig.json` path-aliases `@devdigest/reviewer-core` straight to `../reviewer-core/src`, pulling reviewer-core's source (and its own `openai`/`zod` deps) into the server's `tsc` program; server's own `node_modules` does NOT satisfy that resolution since reviewer-core is a sibling package with its own lockfile, not a parent. Fix: `cd reviewer-core && npm install` once per checkout/worktree — reviewer-core is the one package of the four that uses `npm`/`package-lock.json`, NOT `pnpm` (confirmed by its committed `package-lock.json`; running `pnpm install` there instead fabricates a stray `pnpm-lock.yaml`/`pnpm-workspace.yaml` that should be deleted, not committed).
+- **When a plan/spec promises identical untrusted-input validation across a group of sibling
+  fields, an implementer can validate most of them and silently miss one — and it will still
+  typecheck and pass every test that doesn't specifically target the missed field.** On SPEC-04's
+  export route, plan decision D9 explicitly required the same allowlist/regex discipline for THREE
+  fields that all flow into a GitHub API call from the same untrusted request body: `triggers`
+  (`sanitizeTriggers`), `repo` (`parseRepoRef`), and `base`. The implementer wrote both helper
+  functions for `triggers`/`repo`, wired them in, and moved on — `base` (`CiExportInput.base`,
+  `z.string().default('main')`) flowed unvalidated straight into `commitFiles({base})` and
+  `openPullRequest({base})`. `pnpm typecheck` and the full hermetic suite (362/362 at the time)
+  were green throughout, because nothing in the test suite specifically fed a malicious `base`
+  value — the gap was only caught by `plan-verifier` explicitly re-reading D9's prose ("Same
+  discipline for repo… and base…") and grepping for where `input.base` was actually used. ⇒ When
+  a plan/spec states "apply the same treatment to A, B, and C," don't just confirm A and B got it
+  and infer C did too — grep for every one of the N sibling fields by name at the point they reach
+  the dangerous sink (a shell command, a GitHub API call, a generated file), and confirm each one
+  individually goes through the shared helper rather than the raw request value. The fix pattern
+  itself is the exact one already used for `repo`: a `sanitizeX`-shaped function
+  (`server/src/modules/ci/helpers.ts`'s `sanitizeBase`, mirroring `parseRepoRef`) that throws
+  `ValidationError` on anything outside an explicit allowlist regex, never a silent
+  mutate-and-continue.
 
 ## Session Notes
 
