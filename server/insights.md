@@ -309,6 +309,32 @@
   (`server/src/modules/ci/helpers.ts`'s `sanitizeBase`, mirroring `parseRepoRef`) that throws
   `ValidationError` on anything outside an explicit allowlist regex, never a silent
   mutate-and-continue.
+- **Export-to-CI's Install step needs TWO separate `GITHUB_TOKEN`-shaped credentials, and
+  conflating them produces a confusing 500.** (a) The target repo's own Actions secret
+  (`OPENROUTER_API_KEY`/`GITHUB_TOKEN`), shown informationally in the wizard's Configure step
+  "Secrets" table — DevDigest never reads or writes this, the user adds it by hand in the *target*
+  repo's own GitHub Settings (by design, AC-31 — no cross-repo secret access). (b) DevDigest's
+  *own* `GITHUB_TOKEN`, read via `SecretsProvider`/`container.github()`
+  (`server/src/adapters/github/octokit.ts`), needed by *this server* to actually call
+  `commitFiles`/`openPullRequest` on the user's behalf. When (b) isn't configured,
+  `container.github()` throws a `ConfigError` that surfaces to the client as a 500 with the message
+  "GITHUB_TOKEN is not configured" — correct, AC-23-compliant error surfacing, but easy for a user
+  to misdiagnose as "the wizard's Secrets step doesn't work" (the two credentials share the exact
+  same env-var name). Fix path: Settings → API Keys (`/settings/api-keys`,
+  `client/.../SettingsApiKeys`) → add a GitHub PAT there — `SECRET_KEY_BY_PROVIDER.github` (`server/
+  src/modules/settings/constants.ts`) already maps that field to `GITHUB_TOKEN`.
+- **The Settings page's GitHub PAT scope hint is stale as of Export-to-CI.** `githubHint` in
+  `client/messages/en/settings.json` ("Contents (read), Pull requests (read+write), Metadata
+  (read), Actions (read)") predates this feature and understates what's actually required now:
+  `commitFiles` needs **Contents: write** (not read) to create the tree/commit/ref, and pushing to
+  `.github/workflows/*.yml` needs the **separate** *Workflows: write* fine-grained permission
+  (GitHub rejects a workflow-file push under Contents:write alone — see the AC-23 error-mapping
+  branch in `modules/ci/export-service.ts`'s `mapGitHubError`, which already anticipates and names
+  this exact failure). A PAT created against the current hint text will pass Settings'
+  "test-connection" check (that only calls `GET /user`) but then fail at Install time with a
+  workflow-permission error. Not yet fixed — the hint string needs updating to include Contents:
+  write, Pull requests: write, Workflows: write, Metadata: read (and Actions: read if CI Runs
+  ingest is wanted too).
 
 ## Session Notes
 
