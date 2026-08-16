@@ -458,6 +458,21 @@
   one-liner: promoting it to a constructor-assigned field costs nothing at
   runtime and is what makes the service testable without a real DB.
 
+- **A multi-agent plan's per-step file-ownership list can omit a dependency the step's own test
+  criteria require.** SPEC-04-export-to-ci's plan assigned `server/package.json` (adding `yaml`,
+  needed for `modules/ci/helpers.ts`'s manifest YAML round-trip, D1) to Step 1, while Step 2 (the
+  step that actually imports and tests `yaml`) was dispatched in a PARALLEL wave with an explicit
+  "you only import already-frozen shared contracts, so you have no dependency on Step 1's work"
+  instruction — which is simply false for this one file. Without `yaml` installed, Step 2's own
+  hermetic AC-7 round-trip test criteria are literally unimplementable. Resolved by adding the
+  one-line dependency to `server/package.json`/`pnpm install`-ing it from within Step 2 anyway
+  (a single additive version bump, trivially mergeable with Step 1's identical intended edit — not
+  a real collision) rather than blocking the whole step, but flagging it prominently rather than
+  doing it silently. ⇒ Before trusting a dispatch prompt's "no dependency on step N" claim in a
+  parallel wave, grep the step's OWN test criteria for anything requiring a package not in its
+  declared file list — a plan's step-boundary file lists can disagree with what that step's tests
+  actually need to compile/run.
+
 ## Open Questions
 
 - API Contract Reviewer experiment (skills-off vs skills-on) not yet run — needs a breaking-change PR in a cloned repo + two review runs to compare.
