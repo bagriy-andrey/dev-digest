@@ -407,3 +407,22 @@
   component level, e.g. this step's `TargetStep` originally repeated "Target" as both the modal's
   step-header label AND a redundant section `FormField` label inside the step body — removed) versus
   intentional (query needs to be more specific instead).
+
+- 2026-08-16 (SPEC-04 export-to-CI, step 5 — Agent CI tab + `/ci-runs` page): two things worth
+  flagging for the next agent that touches a minute-bucketed relative-time helper or reuses
+  `EmptyState`'s `cta` prop. (1) **The `relativeTime` pattern already used by
+  `ContextPage/helpers.ts` (`Math.round(msAgo / 60_000)`, `< 1` ⇒ `"now"`) rounds 30–59s ago UP to
+  `1` due to JS's round-half-up, not down to `0`** — so "now" only actually covers the first ~29
+  seconds, not the first 59; a test asserting `"now"` for a fixture 30s in the past will get
+  `"1m"` instead. Use something comfortably under 30s (or comfortably over, for the `"1m"` case)
+  when hand-picking a fixture timestamp for this helper, in any of its now-multiple colocated
+  copies. (2) **`@devdigest/ui`'s `EmptyState` hardcodes its `cta` button's icon to `"Plus"`** —
+  if the `cta` string you pass already carries a leading symbol (e.g. `ci.json`'s
+  `ciTab.addToCi: "+ Add to CI"`, designed for a plain `Button` elsewhere), the rendered empty
+  state shows a Plus icon **and** a literal `+` in the text side by side. Not a bug (the same
+  string is intentionally reused for both a header button and an empty-state CTA, per the
+  2026-08-16 Export Wizard entry above on legitimate duplicate copy), but worth knowing before
+  reflexively "fixing" what looks like a doubled affordance — and a reminder that reusing one
+  button-shaped i18n string across two different button-rendering components (`Button` vs.
+  `EmptyState`'s internal button) can produce this kind of small visual overlap even when the
+  copy itself is correct.
