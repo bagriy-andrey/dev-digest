@@ -391,6 +391,23 @@
   waiting for the actual completion notification; only re-read after a `failed`/`completed`
   notification actually arrives.)
 
+- **Bash's cwd reset behavior between tool calls is inconsistent, and this bit `/sdd-build`'s own
+  merge step**: after one call shaped `cd <worktree-A> && git commit ...`, the harness reset the
+  shell's cwd back to the orchestrator's own directory before the *next* call — but after the very
+  next call, shaped `cd <worktree-B> && git commit ...`, the cwd did **not** reset and silently
+  stayed inside worktree-B. A third command run with no explicit `cd` (`git merge --no-ff
+  <worktree-A-branch> ...`, intended for the integration branch) therefore executed inside
+  worktree-B instead, merging step A's work into step B's branch rather than into the integration
+  branch — a wrong-branch merge that succeeds silently (no error, a normal-looking merge commit)
+  and is only caught by explicitly checking `git branch --show-current` / `git log --graph`
+  afterward. ⇒ During any multi-worktree integrate-and-merge sequence (the `/sdd-build` Step 2
+  "merge every branch from this tier" procedure), never rely on a preceding `cd` to set state for a
+  later, separate Bash call — use `git -C <absolute-worktree-path> <command>` for every single git
+  invocation instead, so each command's target is explicit regardless of what the shell's actual
+  cwd happens to be. (The accidental merge was still recoverable: the two branches' combined result
+  was simply merged as one unit into the correct integration branch afterward — no work was lost,
+  but it cost an extra investigation pass to notice.)
+
 ## Session Notes
 
 - **2026-07-16 (SPEC-01-onboarding, 5-step single-agent-per-step pipeline): `.claude/agents/
