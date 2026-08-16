@@ -33,6 +33,44 @@ interactive `pnpm approve-builds` picker). This writes a package-local `agent-ru
 (`allowBuilds: {esbuild: true}`) that should be committed with the rest of the package so future
 clones don't re-hit the same gate. ref: agent-runner/pnpm-workspace.yaml
 
+2026-08-16 — `agent-runner/.gitignore`'s own `dist/` line SHADOWS the root `.gitignore`'s
+`!agent-runner/dist/` / `!agent-runner/dist/**` negation, even though the root file's own comment
+says committing `dist/` is intentional. Git resolves conflicting `.gitignore` rules by directory
+depth — a MORE NESTED `.gitignore` (here, `agent-runner/.gitignore`) wins over a less-nested one
+(root) regardless of line order, so the root negation is silently overridden.
+`git check-ignore -v agent-runner/dist/index.js` confirms the match is
+`agent-runner/.gitignore:2:dist/`, not the root file. A plain `git add agent-runner/dist/index.js`
+therefore no-ops with zero error/warning — it just never shows up in `git status`. Fix used: `git
+add -f agent-runner/dist/index.js agent-runner/dist/300.index.js agent-runner/dist/package.json`
+(force-add bypasses the ignore rule without editing any `.gitignore`). A more permanent fix would
+be adding the same `!dist/` / `!dist/**` negation to `agent-runner/.gitignore` itself, but that
+wasn't done here since it's outside this session's declared file list. ref: agent-runner/.gitignore:2
+
+2026-08-16 — `pnpm build` (`ncc build src/index.ts -o dist`) now emits a SECOND, lazily-loaded
+chunk file (`dist/300.index.js`, ~6KB) alongside `dist/index.js`, contradicting the 2026-07-08
+finding above that ncc "fully inlines" everything into one self-contained file. Traced to the
+bundled `openai` SDK's Node-only file-upload helper (`fileFromPath`) — ncc keeps it as a separate
+chunk loaded via `__nccwpck_require__.e(/* import() */ 300)`, a pattern ncc can't statically inline
+when the target module does its own conditional dynamic `import()`. Confirmed DEAD CODE for this
+package: grepped `reviewer-core/src` and `agent-runner/src` for `fileFromPath`/`toFile`/
+`files.create`/`.files.` — zero hits in either. Confirmed unreachable at runtime too: copied
+`dist/index.js` alone into a directory with NO ancestor `package.json` anywhere (true simulation of
+an arbitrary target repo, since the Export-to-CI bundle embeds this file standalone as
+`.devdigest/runner/index.js`) and ran it directly with `node index.js` (Node v22.22) — it executed
+correctly (failed only on the expected missing-manifest precondition), never touching the chunk.
+Two follow-ups for whoever touches this next: (1) still COMMIT the whole `dist/` output
+(`index.js` + `300.index.js` + `package.json`), not just `index.js`, in THIS repo — if a future
+`reviewer-core`/SDK change ever makes that upload path reachable, the single-file embedding model
+(`server/src/modules/ci/runner-bundle.ts` reads and ships exactly ONE file into target repos) would
+silently break in someone else's CI with no way to also ship the sibling chunk; re-run this same
+dead-code check after any `openai`/`reviewer-core` dependency bump. (2) Running the bundle with
+zero ancestor `package.json` worked here despite `dist/index.js` containing top-level ESM `import`
+syntax and no `agent-runner/package.json`'s `"type": "module"` being visible from that location —
+this relies on Node's module-syntax auto-detection (default in Node ≥22, backported to some 20.x
+patch releases), the same assumption `workflow.ts`'s "no setup-node, ubuntu-latest ships Node ≥20"
+comment already accepts; not verified against every Node 20.x patch GitHub's `ubuntu-latest` image
+might actually ship. ref: agent-runner/package.json:15 (ncc build script)
+
 ## Recurring Errors & Fixes
 
 2026-07-08 — A hand-rolled unified-diff parser (`diff.ts`) that does `raw.split('\n')` without dropping a trailing empty element will over-count the last hunk's new-side line coverage by one. Any diff string terminated by `\n` (which `git diff` / GitHub's `Accept: application/vnd.github.v3.diff` output always is) produces a trailing `''` after `split('\n')`; if the parser's "else = context line" branch doesn't special-case it, that phantom line gets pushed onto `newLineNumbers`, silently widening what the citation-grounding gate considers "in the diff" by one line past the real hunk. Fix: `if (lines[lines.length - 1] === '') lines.pop()` right after the split, before the per-line loop. Caught by a fixture test asserting the exact `newLineNumbers` array, not just hunk counts. ref: agent-runner/src/diff.ts:19
