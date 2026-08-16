@@ -252,6 +252,14 @@
   shape — check for the `SPEC-` filename prefix before assuming EARS structure, and never rename
   or rewrite a legacy doc into the new format without being explicitly asked to.
 
+- **A `SPEC-NN` id can be claimed by a file whose *filename* has no `SPEC-NN-` prefix at all** —
+  `specs/eval-pipeline.md` has no numeric filename prefix but its first line declares `Spec ID:
+  SPEC-03`. ⇒ Before assigning the next spec number, `grep -rn "Spec ID: SPEC-" specs/**/*.md
+  server/specs/**/*.md client/specs/**/*.md` (or equivalent) rather than inferring the next free
+  number from filenames alone — a directory listing undercounts claimed ids. (Caught while writing
+  `specs/SPEC-04-export-to-ci.md`: the request asked for `SPEC-03`, which was silently already
+  taken.)
+
 ## Tool & Library Notes
 
 - **`./scripts/dev.sh` backgrounded via a trailing `&` in an agent shell "completes" almost

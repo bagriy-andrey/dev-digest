@@ -329,6 +329,9 @@ export const CiExportInput = z.object({
   post_as: z.enum(['github_review', 'pr_comment', 'none']).default('github_review'),
   triggers: z.array(z.string()).default(['opened', 'synchronize', 'reopened']),
   base: z.string().default('main'),
+  /** Optional Preview-edited file contents (AC-29). Server applies an override
+   *  ONLY for a path it generated itself and only when that file is editable. */
+  files: z.array(CiFile).optional(),
 });
 export type CiExportInput = z.infer<typeof CiExportInput>;
 /** Caller-facing input type — `.default()` fields stay optional (web hooks). */
