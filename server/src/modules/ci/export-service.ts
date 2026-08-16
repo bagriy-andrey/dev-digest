@@ -5,6 +5,7 @@ import type { CiInstallationRow, CiRunRow } from './types.js';
 import {
   parseRepoRef,
   sanitizeTriggers,
+  sanitizeBase,
   slugify,
   slugifyUnique,
   buildManifest,
@@ -68,6 +69,7 @@ export class CiExportService {
     }
 
     const ref = parseRepoRef(input.repo);
+    const base = sanitizeBase(input.base);
 
     // Two-flag skill filter (server/insights.md): a link can be disabled
     // per-agent, and a skill can be disabled globally — both gate inclusion.
@@ -132,7 +134,7 @@ export class CiExportService {
     try {
       await github.commitFiles(ref, {
         branch: CI_BRANCH,
-        base: input.base,
+        base,
         files,
         message: COMMIT_MESSAGE,
       });
@@ -143,7 +145,7 @@ export class CiExportService {
             await github.openPullRequest(ref, {
               title: PR_TITLE,
               head: CI_BRANCH,
-              base: input.base,
+              base,
               body: PR_BODY,
             })
           ).url;

@@ -73,6 +73,25 @@ export function sanitizeTriggers(triggers: string[]): string[] {
   return filtered.length > 0 ? filtered : [...DEFAULT_TRIGGERS];
 }
 
+// A conservative git-ref charset check — not a full `git check-ref-format`
+// reimplementation, just enough to keep `base` out of the same trust
+// boundary `repo`/`triggers` already close (D9): no leading `-`/`/`, no `..`,
+// no `.lock` suffix, no whitespace or shell/URL-special characters.
+const GIT_REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
+/** Regex-validated git ref (branch name) — throws `ValidationError` on anything else. */
+export function sanitizeBase(base: string): string {
+  if (
+    !GIT_REF_RE.test(base) ||
+    base.includes('..') ||
+    base.endsWith('/') ||
+    base.endsWith('.lock')
+  ) {
+    throw new ValidationError(`Invalid base branch "${base}"`, { base });
+  }
+  return base;
+}
+
 // ===========================================================================
 // Manifest (D1) — YAML is ALWAYS produced by the `yaml` package, never
 // hand-rolled: a hand-rolled serializer mishandling a multi-line/quote-heavy

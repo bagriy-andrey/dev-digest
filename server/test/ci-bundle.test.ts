@@ -16,6 +16,7 @@ import {
   slugifyUnique,
   parseRepoRef,
   sanitizeTriggers,
+  sanitizeBase,
   buildManifest,
   manifestYaml,
   memoryJsonl,
@@ -90,6 +91,31 @@ describe('parseRepoRef', () => {
     expect(() => parseRepoRef('not-a-repo')).toThrow(ValidationError);
     expect(() => parseRepoRef('a/b/c')).toThrow(ValidationError);
     expect(() => parseRepoRef('')).toThrow(ValidationError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeBase (D9) — `base` gets the same untrusted-input discipline as
+// `repo`/`triggers`: it reaches a GitHub `getRef`/`pulls.create` call, so an
+// unvalidated value is a request-forgery/injection surface, not just a UX nit.
+// ---------------------------------------------------------------------------
+
+describe('sanitizeBase', () => {
+  it('accepts a plain branch name and common ref-like names', () => {
+    expect(sanitizeBase('main')).toBe('main');
+    expect(sanitizeBase('release/2.0')).toBe('release/2.0');
+    expect(sanitizeBase('feature-123')).toBe('feature-123');
+  });
+
+  it('throws ValidationError on refs with unsafe characters, traversal, or a leading dash/slash', () => {
+    expect(() => sanitizeBase('main; rm -rf /')).toThrow(ValidationError);
+    expect(() => sanitizeBase('../../etc/passwd')).toThrow(ValidationError);
+    expect(() => sanitizeBase('-flag')).toThrow(ValidationError);
+    expect(() => sanitizeBase('/main')).toThrow(ValidationError);
+    expect(() => sanitizeBase('main/')).toThrow(ValidationError);
+    expect(() => sanitizeBase('branch.lock')).toThrow(ValidationError);
+    expect(() => sanitizeBase('has space')).toThrow(ValidationError);
+    expect(() => sanitizeBase('')).toThrow(ValidationError);
   });
 });
 
