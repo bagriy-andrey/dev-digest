@@ -384,3 +384,30 @@
   inside `"workspace"` instead of `"compare"`. `next-intl`'s missing-key behavior is a silent
   fallback to the raw key path, not a build/typecheck error, so this only surfaces at
   render/test time, never at `pnpm typecheck`.
+- 2026-08-16 (PLAN-04 step 4, Multi-Agent Review page): the `/multi-agent?pr=` mode split is NOT
+  "presence of `?pr=` alone ⇒ results view" despite the plan's routing bullet reading that way in
+  isolation — reconciled against D7 (`GET /pulls/:id/multi-agent` returns `200` + `null`, never
+  404, when the PR has no group yet) and the very next bullet ("Once a PR is picked… Selecting a
+  PR sets `?pr=`"), the real rule is: no `?pr=` ⇒ Configure-run (PR picker only); `?pr=` set but
+  `useMultiAgentRun(prId)` resolves to `null` ⇒ STILL Configure-run, now with that PR's agent
+  checklist enabled (AC-7); `?pr=` set and a real group comes back ⇒ results view. This makes
+  "starting a run stays on the page and flips to results" work for free — the mutation's
+  `onSuccess` already invalidates `["multi-agent", prId]`, the page is already at that URL, and
+  the next refetch just changes which branch renders; no extra `router.push` needed after a run
+  starts. D7's `.nullable()` response shape exists specifically to make this branch cheap to
+  detect without an error path.
+- 2026-08-16: `@devdigest/ui`'s `Toggle` (`vendor/ui/primitives/Toggle.tsx`) takes only
+  `{on, onChange, size}` — no `aria-label`/`aria-labelledby`/`...rest` passthrough, and it renders
+  its own `<button role="switch">`. Wrapping it in an outer `<button onClick=...>` to make a
+  clickable "label + switch" row (so clicking either toggles) produces an invalid nested
+  `<button><button/></button>` — don't do that. Render the label `<span>` and `<Toggle>` as plain
+  siblings in a flex row instead; only the Toggle itself is interactive.
+- 2026-08-16: a worktree-isolated agent's assigned worktree can be based on a commit that PREDATES
+  a prior step's integration commit even when the task briefing claims "step N is already merged
+  into your base" — confirmed by `grep`/`find` turning up nothing for the expected new files/
+  exports. Since sibling worktrees share the same `.git` object database, `git log --all --oneline
+  -- <path>` (run from your OWN worktree, no `cd`/`-C` to another worktree — that's blocked) will
+  still find the integration commit even though it's not on your current branch. If
+  `git merge-base --is-ancestor HEAD <that-commit>` is true, `git merge --ff-only <that-commit>`
+  is a safe, ordinary git operation confined to your own worktree (not a cross-worktree redirect)
+  that brings the missing foundation in without redoing any of its design work.
