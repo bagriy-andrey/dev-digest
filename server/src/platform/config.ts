@@ -29,6 +29,11 @@ const EnvSchema = z.object({
   API_PORT: z.coerce.number().int().default(3001),
   WEB_PORT: z.coerce.number().int().default(3000),
   DEVDIGEST_CLONE_DIR: z.string().optional(),
+  // Export-to-CI: path to the built `agent-runner` bundle embedded in the CI
+  // export (`.devdigest/runner/index.js`). Not a secret — belongs in
+  // AppConfig, not SecretsProvider. Default assumes `server/` as cwd (true for
+  // `pnpm dev`, `pnpm test`, `scripts/dev.sh`).
+  DEVDIGEST_RUNNER_BUNDLE: z.string().optional(),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   // `.env` (and .env.example) ship `LOG_LEVEL=` empty; an empty string is not a
   // valid enum member, so coerce '' → undefined to fall through to the default.
@@ -59,6 +64,9 @@ export type AppConfig = {
    * EXACTLY like the ripgrep-only baseline.
    */
   repoIntelEnabled: boolean;
+  /** Absolute path to the built `agent-runner/dist/index.js` bundle that gets
+   *  embedded (verbatim, `editable: false`) in every CI export. */
+  runnerBundlePath: string;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -66,6 +74,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const cloneDirRaw =
     parsed.DEVDIGEST_CLONE_DIR ?? join(homedir(), '.devdigest', 'workspace');
   const cloneDir = isAbsolute(cloneDirRaw) ? cloneDirRaw : resolve(process.cwd(), cloneDirRaw);
+  const runnerBundleRaw =
+    parsed.DEVDIGEST_RUNNER_BUNDLE ?? resolve(process.cwd(), '../agent-runner/dist/index.js');
+  const runnerBundlePath = isAbsolute(runnerBundleRaw)
+    ? runnerBundleRaw
+    : resolve(process.cwd(), runnerBundleRaw);
   return {
     databaseUrl: parsed.DATABASE_URL,
     apiPort: parsed.API_PORT,
@@ -77,5 +90,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     webOrigin: `http://localhost:${parsed.WEB_PORT}`,
     embeddingsEnabled: parsed.EMBEDDINGS_ENABLED === 'true',
     repoIntelEnabled: parsed.REPO_INTEL_ENABLED !== 'false',
+    runnerBundlePath,
   };
 }

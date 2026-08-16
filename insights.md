@@ -28,6 +28,8 @@
 
 ## Codebase Patterns
 
+- **This checkout's git remote pointing at the course upstream (`ai-agentic-engineering-neo/dev-digest`) is named `course`, not `upstream`** — lesson docs/screenshots (e.g. the lesson-7 "how to pull in `agent-runner`" instructions) say `git fetch upstream` / `git checkout upstream/<branch> -- <dir>`, but this repo has three remotes (`course`, `ivan`, `origin`) and no `upstream` at all; running the doc's commands verbatim fails with "unknown revision." ⇒ When following course-lesson git instructions here, substitute the actual remote name — check `git remote -v` first rather than assuming `upstream` exists. ref: 2026-08-15 lesson-7 agent-runner pull.
+
 - The **Planner/Implementer subagent pair** (`.claude/agents/planner.md`,
   `.claude/agents/implementer.md`) relies on **disjoint file ownership per
   plan step**, not `isolation: worktree` alone, to make parallel Implementer
@@ -249,6 +251,14 @@
   spec-writing or spec-reading agent must not assume every file in a `specs/` folder follows one
   shape — check for the `SPEC-` filename prefix before assuming EARS structure, and never rename
   or rewrite a legacy doc into the new format without being explicitly asked to.
+
+- **A `SPEC-NN` id can be claimed by a file whose *filename* has no `SPEC-NN-` prefix at all** —
+  `specs/eval-pipeline.md` has no numeric filename prefix but its first line declares `Spec ID:
+  SPEC-03`. ⇒ Before assigning the next spec number, `grep -rn "Spec ID: SPEC-" specs/**/*.md
+  server/specs/**/*.md client/specs/**/*.md` (or equivalent) rather than inferring the next free
+  number from filenames alone — a directory listing undercounts claimed ids. (Caught while writing
+  `specs/SPEC-04-export-to-ci.md`: the request asked for `SPEC-03`, which was silently already
+  taken.)
 
 ## Tool & Library Notes
 
