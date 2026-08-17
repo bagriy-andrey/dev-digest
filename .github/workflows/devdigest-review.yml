@@ -1,0 +1,38 @@
+name: DevDigest Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+# Declaring any permissions key sets every unlisted scope to none — this block
+# IS the deny-by-default boundary (AC-10). Fixed, never branched on post_as.
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  devdigest-review:
+    name: DevDigest Review
+    # Fork PRs receive no repository secrets; run the job at all and it would
+    # hard-fail on an empty OPENROUTER_API_KEY and look like a blocking verdict.
+    # Skip explicitly so it is observable AS a skip (AC-12).
+    if: github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run DevDigest review
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DEVDIGEST_POST_AS: github_review
+        run: node .devdigest/runner/index.js
+      - name: Upload DevDigest result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devdigest-result
+          path: devdigest-result.json
+          if-no-files-found: warn
