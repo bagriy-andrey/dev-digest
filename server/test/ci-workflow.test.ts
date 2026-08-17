@@ -38,9 +38,15 @@ describe('renderWorkflow', () => {
     expect(yaml).toContain('pull_request:');
   });
 
-  it('has an explicit fork-skip condition at job level (AC-12)', () => {
+  it('has an explicit external-PR-skip condition at job level, keyed on repo identity not the fork flag (AC-12)', () => {
     const yaml = renderWorkflow({ triggers: ['opened'], postAs: 'github_review' });
-    expect(yaml).toContain('if: github.event.pull_request.head.repo.fork == false');
+    expect(yaml).toContain(
+      'if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name',
+    );
+    // `head.repo.fork` is a property of the repo (was it ever created via Fork?), not of
+    // whether this specific PR crosses a repo boundary — it must not be used here, or every
+    // PR in an installing repo that is itself a fork of some upstream would wrongly skip.
+    expect(yaml).not.toContain('head.repo.fork');
   });
 
   it('job id + name are the fixed constants, independent of postAs/triggers (AC-13)', () => {

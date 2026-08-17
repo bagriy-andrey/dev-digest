@@ -23,10 +23,16 @@ import {
  *   `issues: write` — for every `post_as` value; declaring any permissions
  *   key sets every unlisted scope to `none`, so this block IS the
  *   deny-by-default boundary (AC-10). Never branch this on `postAs`.
- * - the job is skipped outright for fork PRs (AC-12): fork PRs get no
- *   repository secrets, so running it would hard-fail on an empty
+ * - the job is skipped outright for PRs from an external repo (AC-12): such
+ *   PRs get no repository secrets, so running it would hard-fail on an empty
  *   `OPENROUTER_API_KEY` and look like a blocking verdict instead of an
- *   observable skip.
+ *   observable skip. This is deliberately `head.repo.full_name !=
+ *   base.repo.full_name`, NOT `head.repo.fork == true` — the latter is a
+ *   property of the repo itself (was it ever created via Fork?), so it's
+ *   true for every PR — including same-repo branch-to-branch PRs — whenever
+ *   the installing repo is itself a fork of some upstream. Those PRs run
+ *   inside the installing repo and DO have its secrets; only a PR whose head
+ *   lives in a genuinely different repository lacks them.
  * - job id + `name:` are the fixed `WORKFLOW_JOB_ID`/`WORKFLOW_JOB_NAME`
  *   constants, never derived from the agent/slug (AC-13) — a branch
  *   protection required check is matched by job NAME.
@@ -64,7 +70,7 @@ jobs:
     # Fork PRs receive no repository secrets; run the job at all and it would
     # hard-fail on an empty OPENROUTER_API_KEY and look like a blocking verdict.
     # Skip explicitly so it is observable AS a skip (AC-12).
-    if: github.event.pull_request.head.repo.fork == false
+    if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

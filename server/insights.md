@@ -233,6 +233,28 @@
   your summary that the `.it.test.ts` couldn't be executed here.
 - `GET /agents` and `GET /agents/:id` do NOT populate linked skills — `skills` is always absent. Use the separate `GET /agents/:id/skills` endpoint to inspect skill links. The seed's `agentSkills` inserts with `onConflictDoNothing` are order-dependent: if the referenced agent doesn't exist when the seed first runs, re-run the seed after adding the agent entry.
 - Drizzle aggregate pattern for list-with-count: `db.select({ agent: t.agents, skill_count: count(t.agentSkills.skillId) }).from(t.agents).leftJoin(t.agentSkills, eq(...)).groupBy(t.agents.id)` then `.map(({ agent, skill_count }) => ({ ...agent, skill_count }))`. The `toAgentDto` helper accepts `AgentRow & { skill_count?: number }` — existing single-row callers (`getById`, `update`) keep passing plain `AgentRow` and get `skill_count: undefined` with no type error.
+- The `pull_request`-triggered workflow rendered by `modules/ci/workflow.ts` cannot run on the very
+  PR that first adds it: GitHub only evaluates a `pull_request` workflow using the copy that already
+  exists on the **base** branch, so the check shows as "Skipped" on the PR that merges the workflow
+  file in. It becomes runnable once that PR is merged to the base branch — subsequent PRs opened
+  after the merge should trigger it normally. When debugging "the exported CI check isn't running,"
+  first rule out (a) this base-branch bootstrap gap, (b) the fork/external-PR skip guard (job runs
+  but is skipped by design, not absent — see next bullet for what that guard must key on), and (c) the
+  wizard's chosen `types:` list not covering the PR's actual action (e.g. only `synchronize` selected,
+  but the PR event was `opened`) — before assuming Actions itself is misconfigured.
+- Bug found + fixed (2026-08-17): the AC-12 skip guard in `modules/ci/workflow.ts` originally read
+  `if: github.event.pull_request.head.repo.fork == false`. `head.repo.fork` is a property of the repo
+  itself ("was this repo ever created via GitHub's Fork button?"), NOT of whether this specific PR
+  crosses a repo boundary — so it evaluates `true`, and the DevDigest Review job silently skips, for
+  *every* PR (including ordinary same-repo branch-to-branch PRs) whenever the installing repo happens
+  to itself be a fork of some upstream repo. That's a very plausible test setup (someone forking
+  `dev-digest` to try Export-to-CI on their own copy) and the job secrets ARE present in that case —
+  only a PR whose head lives in a genuinely different repository lacks them. Fixed to
+  `if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name`,
+  which correctly means "same repository" regardless of the installing repo's fork ancestry. Symptom
+  to watch for: Actions run exists, job shows "This job was skipped" (not absent, not pending), and
+  the PR is an ordinary same-repo PR — check whether the installing repo itself is a fork before
+  assuming the PR/branch setup is the problem.
 - Adding a field to `RunStats` (and anything else inside the `run_traces.trace` **jsonb document**) must use `.nullish()`, NOT `.nullable()`: historical trace docs predate the field, and `GET /runs/:id/trace` returns the stored JSON as-is (no response Zod schema, no migration of old docs), so a required/`nullable` field would type-mismatch on old rows. `RunSummary`/table-backed columns can stay `.nullable()` since the repo maps every column explicitly. (Per-run cost feature, 2026-06-20.)
 
 ## Recurring Errors & Fixes
