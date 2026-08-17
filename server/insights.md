@@ -127,6 +127,8 @@
 
 - **Per-feature model selection (`FEATURE_MODELS` / `resolveFeatureModel`) is scoped per-WORKSPACE only — there is no per-repo override anywhere.** `settings` table columns are `(workspace_id, user_id, key, value)` with a unique index on those three (`server/src/db/schema/core.ts`); `repos` has no config/settings JSON column at all (`server/src/db/schema/repos.ts`). `resolveFeatureModel(container, workspaceId, id)` (`modules/settings/feature-models.ts`) only ever reads the workspace-scoped row. ⇒ Any feature wanting "global default + per-repo override" model selection needs NEW schema (e.g. a `repo_id` column on `settings`, or a config column on `repos`) — it cannot be built by reusing the existing mechanism as-is.
 - The `'review_intent'` `FeatureModelId` is registered in `FEATURE_MODELS` (`vendor/shared/contracts/platform.ts`, default `openai/gpt-4.1`) and `pr_intent`/`pr_brief` DB tables + `Intent` zod contract + `ReviewRepository.getIntent`/`upsertIntent` all exist, but **nothing in `server/src` actually calls `resolveFeatureModel(..., 'review_intent')` or `getIntent`/`upsertIntent`** — grep confirms zero call sites outside the repository/contract layer itself. This is pure unbuilt scaffolding (see root `insights.md` for the full cross-cutting picture), not a working feature to build on top of.
+- **`agent_runs` has no natural unique key to `onConflictDoUpdate` against for a "paired write" upsert (Export-to-CI's `CiRepository.upsertRunWithAgentRun`, AC-47/AC-48).** Unlike every other upsert in this codebase (single `insert().onConflictDoUpdate({target: [...]})` call against a table's own unique index/constraint), pairing a `ci_runs` row 1:1 with an `agent_runs` row required a manual two-step: inside the transaction, first SELECT the existing `ci_runs` row by its real unique key `(ci_installation_id, workflow_run_id)` to read back its `agent_run_id` (if any); if found, UPDATE that specific `agent_runs.id`; if not, INSERT a fresh one and capture the returned id; only THEN upsert `ci_runs` itself (which DOES have a real unique index) carrying that `agent_run_id`. Reusing the plain `onConflictDoUpdate` idiom here would either duplicate an `agent_runs` row on every re-ingest (no target to conflict against) or require adding a synthetic unique column to `agent_runs` that has no meaning for `source:'local'` rows. ⇒ Any future "table B has no independent identity, table A is the real upsert key, but a row must exist 1:1 in both" pairing needs this select-then-branch pattern inside one `db.transaction`, not a bare `onConflictDoUpdate`.
+- **`ci_runs.status` (raw `CiRunStatus`: `succeeded`/`failed`/`no_findings`/`running`, D6) and `agent_runs.status` (this repo's pre-existing local-run vocabulary: `running`/`done`/`failed`/`cancelled`, see `run.repo.ts`) are DELIBERATELY different vocabularies on the same conceptual "how did the run go" axis.** `CiRepository.upsertRunWithAgentRun` maps CI status → agent_runs status via `running→running`, `failed→failed`, `succeeded`/`no_findings`→`done` (a gate-blocked run with findings is still a *successful review*, so it maps to `done`, not `failed` — matches D6's own "artifact-first" reasoning). Any code reading `agent_runs.status==='done'` to mean "successful local run" (e.g. `skills/repository.ts`'s usage-stats query, `pulls/routes.ts`'s cost aggregation) will also match `source:'ci'` rows with a `no_findings` verdict — that's intentional (both are "the run completed and produced a real result"), not a bug to filter out.
 - The `SmartDiff`/`SmartDiffGroup`/`SmartDiffFile`/`SmartDiffRole`/`ProposedSplit` zod contracts already exist, fully defined and byte-identical, in both vendored copies (`server/src/vendor/shared/contracts/brief.ts:80-113` and `client/src/vendor/shared/contracts/brief.ts:80-113`) as part of the composed `PrBrief` doc — but grep confirms zero producers/consumers anywhere in `server/src` or `client/src` outside the contract file itself. Same "scaffolding exists, nothing wired" shape as `review_intent` above. A Smart-Diff feature building on this must NOT redefine the contract, only compose it.
 - "Latest review per PR" has an existing, reusable precedent: `server/src/modules/pulls/routes.ts:114-127` derives it by iterating `reviewsForPull`'s newest-first (`desc(createdAt)`) list and taking the first row per `prId` (filtered to `kind === 'review'`) into a `Map`. There is no `is_latest` flag anywhere in the schema — any new feature needing "the latest completed review" should reuse this same reduction over `ReviewRepository.reviewsForPull`, not invent new query logic.
 - **`RepoIntelService.getBlastRadius`'s persistent path (`tryPersistentBlast`,
@@ -231,6 +233,28 @@
   your summary that the `.it.test.ts` couldn't be executed here.
 - `GET /agents` and `GET /agents/:id` do NOT populate linked skills — `skills` is always absent. Use the separate `GET /agents/:id/skills` endpoint to inspect skill links. The seed's `agentSkills` inserts with `onConflictDoNothing` are order-dependent: if the referenced agent doesn't exist when the seed first runs, re-run the seed after adding the agent entry.
 - Drizzle aggregate pattern for list-with-count: `db.select({ agent: t.agents, skill_count: count(t.agentSkills.skillId) }).from(t.agents).leftJoin(t.agentSkills, eq(...)).groupBy(t.agents.id)` then `.map(({ agent, skill_count }) => ({ ...agent, skill_count }))`. The `toAgentDto` helper accepts `AgentRow & { skill_count?: number }` — existing single-row callers (`getById`, `update`) keep passing plain `AgentRow` and get `skill_count: undefined` with no type error.
+- The `pull_request`-triggered workflow rendered by `modules/ci/workflow.ts` cannot run on the very
+  PR that first adds it: GitHub only evaluates a `pull_request` workflow using the copy that already
+  exists on the **base** branch, so the check shows as "Skipped" on the PR that merges the workflow
+  file in. It becomes runnable once that PR is merged to the base branch — subsequent PRs opened
+  after the merge should trigger it normally. When debugging "the exported CI check isn't running,"
+  first rule out (a) this base-branch bootstrap gap, (b) the fork/external-PR skip guard (job runs
+  but is skipped by design, not absent — see next bullet for what that guard must key on), and (c) the
+  wizard's chosen `types:` list not covering the PR's actual action (e.g. only `synchronize` selected,
+  but the PR event was `opened`) — before assuming Actions itself is misconfigured.
+- Bug found + fixed (2026-08-17): the AC-12 skip guard in `modules/ci/workflow.ts` originally read
+  `if: github.event.pull_request.head.repo.fork == false`. `head.repo.fork` is a property of the repo
+  itself ("was this repo ever created via GitHub's Fork button?"), NOT of whether this specific PR
+  crosses a repo boundary — so it evaluates `true`, and the DevDigest Review job silently skips, for
+  *every* PR (including ordinary same-repo branch-to-branch PRs) whenever the installing repo happens
+  to itself be a fork of some upstream repo. That's a very plausible test setup (someone forking
+  `dev-digest` to try Export-to-CI on their own copy) and the job secrets ARE present in that case —
+  only a PR whose head lives in a genuinely different repository lacks them. Fixed to
+  `if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name`,
+  which correctly means "same repository" regardless of the installing repo's fork ancestry. Symptom
+  to watch for: Actions run exists, job shows "This job was skipped" (not absent, not pending), and
+  the PR is an ordinary same-repo PR — check whether the installing repo itself is a fork before
+  assuming the PR/branch setup is the problem.
 - Adding a field to `RunStats` (and anything else inside the `run_traces.trace` **jsonb document**) must use `.nullish()`, NOT `.nullable()`: historical trace docs predate the field, and `GET /runs/:id/trace` returns the stored JSON as-is (no response Zod schema, no migration of old docs), so a required/`nullable` field would type-mismatch on old rows. `RunSummary`/table-backed columns can stay `.nullable()` since the repo maps every column explicitly. (Per-run cost feature, 2026-06-20.)
 
 ## Recurring Errors & Fixes
@@ -287,6 +311,92 @@
   snapshot-metadata bug will make the first run propose a change to a column that a `git log`
   on the actual migration files shows was already added and applied.
 - `cd server && pnpm typecheck` fails with `Cannot find module 'openai'/'zod'` inside `../reviewer-core/src/**` if `reviewer-core/node_modules` was never installed in that checkout/worktree. Server's `tsconfig.json` path-aliases `@devdigest/reviewer-core` straight to `../reviewer-core/src`, pulling reviewer-core's source (and its own `openai`/`zod` deps) into the server's `tsc` program; server's own `node_modules` does NOT satisfy that resolution since reviewer-core is a sibling package with its own lockfile, not a parent. Fix: `cd reviewer-core && npm install` once per checkout/worktree — reviewer-core is the one package of the four that uses `npm`/`package-lock.json`, NOT `pnpm` (confirmed by its committed `package-lock.json`; running `pnpm install` there instead fabricates a stray `pnpm-lock.yaml`/`pnpm-workspace.yaml` that should be deleted, not committed).
+- **When a plan/spec promises identical untrusted-input validation across a group of sibling
+  fields, an implementer can validate most of them and silently miss one — and it will still
+  typecheck and pass every test that doesn't specifically target the missed field.** On SPEC-04's
+  export route, plan decision D9 explicitly required the same allowlist/regex discipline for THREE
+  fields that all flow into a GitHub API call from the same untrusted request body: `triggers`
+  (`sanitizeTriggers`), `repo` (`parseRepoRef`), and `base`. The implementer wrote both helper
+  functions for `triggers`/`repo`, wired them in, and moved on — `base` (`CiExportInput.base`,
+  `z.string().default('main')`) flowed unvalidated straight into `commitFiles({base})` and
+  `openPullRequest({base})`. `pnpm typecheck` and the full hermetic suite (362/362 at the time)
+  were green throughout, because nothing in the test suite specifically fed a malicious `base`
+  value — the gap was only caught by `plan-verifier` explicitly re-reading D9's prose ("Same
+  discipline for repo… and base…") and grepping for where `input.base` was actually used. ⇒ When
+  a plan/spec states "apply the same treatment to A, B, and C," don't just confirm A and B got it
+  and infer C did too — grep for every one of the N sibling fields by name at the point they reach
+  the dangerous sink (a shell command, a GitHub API call, a generated file), and confirm each one
+  individually goes through the shared helper rather than the raw request value. The fix pattern
+  itself is the exact one already used for `repo`: a `sanitizeX`-shaped function
+  (`server/src/modules/ci/helpers.ts`'s `sanitizeBase`, mirroring `parseRepoRef`) that throws
+  `ValidationError` on anything outside an explicit allowlist regex, never a silent
+  mutate-and-continue.
+- **Export-to-CI's Install step needs TWO separate `GITHUB_TOKEN`-shaped credentials, and
+  conflating them produces a confusing 500.** (a) The target repo's own Actions secret
+  (`OPENROUTER_API_KEY`/`GITHUB_TOKEN`), shown informationally in the wizard's Configure step
+  "Secrets" table — DevDigest never reads or writes this, the user adds it by hand in the *target*
+  repo's own GitHub Settings (by design, AC-31 — no cross-repo secret access). (b) DevDigest's
+  *own* `GITHUB_TOKEN`, read via `SecretsProvider`/`container.github()`
+  (`server/src/adapters/github/octokit.ts`), needed by *this server* to actually call
+  `commitFiles`/`openPullRequest` on the user's behalf. When (b) isn't configured,
+  `container.github()` throws a `ConfigError` that surfaces to the client as a 500 with the message
+  "GITHUB_TOKEN is not configured" — correct, AC-23-compliant error surfacing, but easy for a user
+  to misdiagnose as "the wizard's Secrets step doesn't work" (the two credentials share the exact
+  same env-var name). Fix path: Settings → API Keys (`/settings/api-keys`,
+  `client/.../SettingsApiKeys`) → add a GitHub PAT there — `SECRET_KEY_BY_PROVIDER.github` (`server/
+  src/modules/settings/constants.ts`) already maps that field to `GITHUB_TOKEN`.
+- **The Settings page's GitHub PAT scope hint is stale as of Export-to-CI.** `githubHint` in
+  `client/messages/en/settings.json` ("Contents (read), Pull requests (read+write), Metadata
+  (read), Actions (read)") predates this feature and understates what's actually required now:
+  `commitFiles` needs **Contents: write** (not read) to create the tree/commit/ref, and pushing to
+  `.github/workflows/*.yml` needs the **separate** *Workflows: write* fine-grained permission
+  (GitHub rejects a workflow-file push under Contents:write alone — see the AC-23 error-mapping
+  branch in `modules/ci/export-service.ts`'s `mapGitHubError`, which already anticipates and names
+  this exact failure). A PAT created against the current hint text will pass Settings'
+  "test-connection" check (that only calls `GET /user`) but then fail at Install time with a
+  workflow-permission error. **Fixed 2026-08-16** (`githubHint` now lists Contents: read+write,
+  Pull requests: read+write, Workflows: read+write, Metadata: read, Actions: read) — but a PAT
+  created *before* the fix, or edited without revisiting every permission row, can still be
+  under-scoped; see the next entry for the specific failure this produces.
+- **A GitHub fine-grained PAT with `Contents: Read`-only (not `Read and write`) fails
+  `commitFiles`'s `createTree` call with a bare 404, not a 403 — and it looks identical to
+  "repo not in the token's access list."** `POST /repos/{o}/{r}/git/trees` (and the sibling
+  `git/refs`/`git/commits`/`git/blobs` endpoints `commitFiles` also calls) returns `404 Not Found`
+  with `documentation_url: "https://docs.github.com/rest/git/trees#create-a-tree"` when the
+  authenticated token can read the repo (confirmed here: the earlier `getRef`/`getCommit` calls in
+  the same `commitFiles` sequence succeeded, and the repo was already selectable in the wizard's
+  connected-repos dropdown, which itself needs read access) but lacks write access — GitHub does
+  this deliberately so an under-scoped token can never distinguish "repo doesn't exist" from "repo
+  exists but you can't write to it." Before this fix, `mapGitHubError` (`modules/ci/export-service.ts`)
+  only pattern-matched the *workflow-scope* 404 case, so this one fell through to a bare "GitHub
+  export failed: Not Found - <docs url>" toast with zero actionable hint — a real user hit this in
+  production testing. Fixed by matching `/Not Found.*docs\.github\.com\/rest\/git\/(trees|refs|
+  commits|blobs)/i` and naming the fix explicitly (check the fine-grained PAT's "Repository access"
+  list AND its Contents permission level — editing an *existing* token's permissions takes effect
+  immediately, no need to regenerate it). ⇒ **General lesson: when wrapping a third-party API's
+  error messages for user display, a single narrow regex for "the one permission case we happened
+  to test" will silently pass through every other permission-denied shape from the same API
+  unhelpfully — enumerate the actual sibling write endpoints being called (here: all four
+  git-data-write routes `commitFiles` touches) rather than only the one that failed first in
+  testing.**
+
+- **`ReviewRunExecutor.executeRuns`/`runOneAgent` (`modules/reviews/run-executor.ts:108-135`) is NOT
+  parallel — it's a plain sequential `for (const { agent, runId } of jobs) { ... await
+  this.runOneAgent(...) }` loop.** Only per-agent FAILURE isolation (the try/catch around each job)
+  is real; nothing awaits multiple jobs concurrently, and there is no worktree isolation anywhere in
+  `server/src` either — the only "worktree" string match in the whole package is an unrelated
+  `git reset --hard` code comment in `adapters/git/simple-git.ts:79`. The single shared diff/intent
+  load before the loop is real reuse, but the fan-out itself is not. Found while spec'ing
+  `specs/SPEC-03-multi-agent-review.md` (originally written as "reuse: parallel execution already
+  works, fan-out via worktrees" in the source requirement doc — that claim is FALSE against the
+  actual code). ⇒ Any future feature assuming "agents already run in parallel" must verify against
+  this loop first; building real concurrency (e.g. `Promise.all`/a bounded pool over `jobs`, plus
+  deciding whether concurrent agents need actual filesystem/worktree isolation or can safely share
+  one read-only clone) is genuine net-new work on this file, not something to reuse as-is.
+
+- **The Multi-Agent Review read model (`MultiAgentService.latest`, `modules/multi-agent/service.ts`) had no workspace-wide "latest group across any PR" query — only per-PR (`latestGroupForPull`).** Needed to fix a UI bug where reopening `/multi-agent` with no PR context always forced the empty Configure-run screen even after a run existed. Added `MultiAgentRepository.latestGroupForWorkspace(workspaceId)` (same shape as `latestGroupForPull` minus the `prId` predicate, ordered by `ranAt desc`) + `MultiAgentService.latestForWorkspace()` + `GET /multi-agent/latest`. Refactored the column/conflict/totals composition (previously inlined in `latest()`) into a shared private `composeGroup(prId, prNumber, group, logger)` so both entry points build the same `MultiAgentRun` shape without duplicating the `runsForGroup`/`reviewsForRuns`/`findingsForRuns`/`computeConflicts`/`totalsFor` pipeline. `latestForWorkspace` resolves the PR row itself (needed for `pr_number`) and returns `null` defensively if it's missing, mirroring D7's "never 404" convention rather than the per-PR route's `NotFoundError`.
+
+- **2026-08-16: `GET /multi-agent/latest` (added earlier the same session) was replaced with `GET /multi-agent/recent` after the single-latest-run redirect it backed turned out to be the wrong UX (see client insights.md).** The replacement (`MultiAgentRepository.recentGroupsForWorkspace`) is a single grouped/aggregated query — `multi_agent_runs` INNER JOIN `pull_requests` (for `pr_number`/`pr_title`) LEFT JOIN `agent_runs` (for per-group `count`/status breakdown/`max(duration_ms)`/`sum(cost_usd)`), `GROUP BY` the group id, `ORDER BY ran_at DESC LIMIT N` — NOT N calls to the existing `runsForGroup`/`reviewsForRuns`/`findingsForRuns` pipeline (`composeGroup`), since a lightweight list (no columns/conflicts needed) doesn't justify that per-group N+1 cost. Two Postgres/postgres-js gotchas hit building the aggregate: (1) `count(*) filter (where ...)` returns `bigint` (int8), which the postgres-js driver does NOT auto-narrow to a JS `number` the way drizzle's own `count()` helper does internally — an explicit `::int` cast in the raw `sql\`...\`` fragment is required, or the field silently becomes a string/BigInt at runtime despite `sql<number>` claiming otherwise at the type level. (2) `max(duration_ms)` (an `integer` column) and `sum(cost_usd)` (a `doublePrecision` column) do NOT have this problem — Postgres's `max()` on `int4` stays `int4`, and `sum()` on `float8` stays `float8`, both of which postgres-js parses as plain numbers natively; only the `count`/`count(*) filter` family needs the cast.
 
 ## Session Notes
 
@@ -458,6 +568,46 @@
   one-liner: promoting it to a constructor-assigned field costs nothing at
   runtime and is what makes the service testable without a real DB.
 
+- **A multi-agent plan's per-step file-ownership list can omit a dependency the step's own test
+  criteria require.** SPEC-04-export-to-ci's plan assigned `server/package.json` (adding `yaml`,
+  needed for `modules/ci/helpers.ts`'s manifest YAML round-trip, D1) to Step 1, while Step 2 (the
+  step that actually imports and tests `yaml`) was dispatched in a PARALLEL wave with an explicit
+  "you only import already-frozen shared contracts, so you have no dependency on Step 1's work"
+  instruction — which is simply false for this one file. Without `yaml` installed, Step 2's own
+  hermetic AC-7 round-trip test criteria are literally unimplementable. Resolved by adding the
+  one-line dependency to `server/package.json`/`pnpm install`-ing it from within Step 2 anyway
+  (a single additive version bump, trivially mergeable with Step 1's identical intended edit — not
+  a real collision) rather than blocking the whole step, but flagging it prominently rather than
+  doing it silently. ⇒ Before trusting a dispatch prompt's "no dependency on step N" claim in a
+  parallel wave, grep the step's OWN test criteria for anything requiring a package not in its
+  declared file list — a plan's step-boundary file lists can disagree with what that step's tests
+  actually need to compile/run.
+
+- **The "overwrite a stored sibling field post-construction" hermetic-test trick (Codebase Patterns,
+  2026-07-16 entry) generalizes one level further than "sibling SERVICE instances": it works
+  identically for a service's own `private repo: SomeRepository` field, even though `Repository`
+  classes wrap `Db`/drizzle directly (not another service).** `CiExportService`/`CiIngestService`
+  (SPEC-04 step 3) both `new CiRepository(container.db)` inside their constructor and store it as
+  `this.repo` — exactly the shape the 07-16 entry requires ("this only works if the service STORES
+  each sibling as an instance field rather than `new`-ing it up inline inside the method body").
+  Hermetic tests build a fake `Container` (`agentsRepo`/`github`/`githubActions`/`config` as plain
+  object literals, `as unknown as Container` — `agentsRepo` isn't in `ContainerOverrides`, but
+  `github`/`githubActions` ARE and can be passed as normal container overrides in `.it.test.ts`
+  files) and then do `(service as unknown as { repo: StubRepo }).repo = { listMemory: vi.fn(...),
+  findInstallation: vi.fn(...), upsertInstallation: vi.fn(...) }` — zero real Postgres, zero drizzle
+  query-builder faking needed, despite `CiRepository` itself being a thin Drizzle wrapper. ⇒ Any
+  future service that internally constructs its own repository (not just another service) can be
+  hermetically tested the same way; don't assume a service-owned `Repository` field forces either a
+  real DB or a fake drizzle chain — overwrite the field.
+- **`readRunnerBundle` does a real `fs.readFileSync`, and `CiExportService.export` calls it
+  unconditionally (no injectable default parameter despite the plan text describing one) — a
+  hermetic `CiExportService` test needs a REAL (tiny, temp) file on disk, not just a mocked
+  `container.config`.** Faking `container.config.runnerBundlePath` to point at a nonexistent path
+  throws `ConfigError` before the rest of `export()` runs. Fixed with `mkdtempSync(os.tmpdir())` +
+  `writeFileSync(..., '// mock runner bundle\n')` in `beforeAll`/cleaned in `afterAll` — one real
+  but fully test-owned file, not a fake FS layer. The same fixture-file approach is needed for
+  `ci-export.it.test.ts` via `loadConfig({..., DEVDIGEST_RUNNER_BUNDLE: tmpBundlePath})`.
+
 ## Open Questions
 
 - API Contract Reviewer experiment (skills-off vs skills-on) not yet run — needs a breaking-change PR in a cloned repo + two review runs to compare.
@@ -485,3 +635,22 @@
   `/findings/:id/eval-case`, both create rows with zero LLM calls). Implemented with 3 rate-limited
   routes (matching the table, the actual ground truth), not 4 — worth a heads-up to whoever reviews
   this against the plan's prose.
+
+- 2026-08-16: Implemented `modules/multi-agent/` (SPEC-04/PLAN-04 step 2 —
+  `constants`/`helpers`/`repository`/`service`/`routes`, registered in
+  `modules/index.ts`) + the four `modules/reviews/` edits (`resolveTargets`'s
+  `agentIds` branch, `runReview`'s `opts.multiAgentRunId`, `createAgentRun`'s
+  new field in both the impl and the facade, and `executeRuns`' loop →
+  `Promise.allSettled` via an extracted `runJob` private method). One
+  composition wrinkle not covered by the `BriefService`-composition precedent
+  above: `ReviewRunExecutor`'s `Logger` type (the pino-shaped `{info,warn,
+  error,debug}` used by `runReview`/`start`) is defined and exported in
+  `modules/reviews/run-executor.ts`, but `modules/reviews/service.ts` only
+  imports it (`import { ReviewRunExecutor, type Logger } from
+  './run-executor.js'`) — it does NOT re-export it. A sibling module composing
+  `ReviewService` and wanting to type its own `logger?: Logger` parameter the
+  same way must import `Logger` from `../reviews/run-executor.js` directly,
+  not from `../reviews/service.js` (which would fail to resolve the type at
+  all, not just warn). Confirmed clean by `pnpm typecheck`; existing
+  `run-executor.test.ts` (single-job-per-test, so allSettled-vs-sequential is
+  unobservable there) needed zero changes — all 300 hermetic tests green.

@@ -32,6 +32,7 @@
 - Page-level `styles.ts` is missing for `PRDetailPage` (and some `RunTraceDrawer/_components`), leaving inline `style={{...}}` objects in JSX that create new object references each render. All other pages have co-located `styles.ts`.
 - Filter/sort logic in `PullsPage` (`pulls/page.tsx`) is inline in the component body; the sibling `helpers.ts` exists but only holds `sizeOf` and `relativeTime`. Pattern: filter/sort utilities belong in `helpers.ts`, not in the render function.
 - `OPEN_STATUSES` set is defined at the top of `PullsPage` component instead of in `constants.ts`. Any module-level constant referenced only within one feature should live in that feature's `constants.ts`.
+- **A route's `_components/` folder is convention-private to that route — a component consumed by 2+ unrelated routes belongs in `client/src/components/` instead.** Found when `architecture-reviewer` flagged (WARNING, non-blocking) that `client/src/app/multi-agent/_components/MultiAgentReviewPage/MultiAgentReviewPage.tsx` imports `RunTraceDrawer` straight from `client/src/app/repos/[repoId]/pulls/[number]/_components/RunTraceDrawer` — reaching into a sibling *page's* private folder rather than a shared location, once the drawer became needed by a second, unrelated route tree. This was a deliberate, documented trade-off for that feature (avoid enlarging the diff by relocating the component + its test), not an accident — but it's a real deviation from the convention, not a new precedent to repeat. ⇒ The trigger for promoting a component out of `_components/` into `client/src/components/` is exactly "a second unrelated route now needs it" — check for that trigger before reaching across a route boundary again, and if reused as a stopgap like this once, plan to promote it on the next touch rather than letting more call sites accumulate the same cross-route import.
 
 ## Tool & Library Notes
 
@@ -264,6 +265,57 @@
   need `BlastRadiusCard` to cap/paginate/virtualize its own symbol list, out of scope for
   a layout-parity fix.
 
+- **2026-08-16: fixed the reported "can't get back to the Multi-Agent Review page" bug — `MultiAgentReviewPage`'s `?pr=` mode split (see the 2026-08-16 PLAN-04 entry above) had no path back to a PAST run once you navigated away, since the sidebar's nav item links to bare `/multi-agent` (`vendor/ui/nav.ts`) and the `!prId` branch always rendered empty Configure-run, with no "start new review" affordance from the results view either.** Fixed with a `?new=1` sentinel query param, not client-only state: `!prId && !new` ⇒ fetch a new workspace-wide `GET /multi-agent/latest` (via `useLatestMultiAgentGroup`, `enabled: wantsLatest`) and `router.replace` onto `?pr=<found pr_id>` the instant it resolves (a loading skeleton covers the gap so Configure-run never flashes first); `!prId && new=1` ⇒ Configure-run, forced, ignoring any past run. The "Start new review" button (top of the results view, via `PageTitle`'s new optional `action` slot) just does `router.push("/multi-agent?new=1")` — a full URL replace drops any stale `pr`/`new` combination automatically, no manual param-stripping needed. Picking a PR from Configure-run (`handleSelectPr` → `router.push(\`/multi-agent?pr=${id}\`)`) was already unchanged and naturally clears `new=1` the same way. No localStorage involved — the "last run" is a server fact (`multi_agent_runs`, newest-first, no PR filter), not a per-browser one.
+
+- **2026-08-16: `MultiAgentReviewPage` (and any other top-level route rendered as a direct `<AppShell>` child) had zero page-level padding — `AppFrame.tsx`'s `<main>` applies NONE (`{flex:1, minHeight:0, overflow:"auto"}`), so a page's content stretches edge-to-edge / flush against the sidebar unless the page's own top-level wrapper supplies it.** `MultiAgentReviewPage` was rendering `PageTitle`/`ConfigureRun`/the results stack as direct `AppShell` children with no wrapper at all — reported as a visual bug (cards/panels stretching full viewport width with huge dead whitespace, title flush to the sidebar edge). Fixed by adding a `page` style (`padding: "24px 32px 44px", maxWidth: 1100, margin: "0 auto"`) and wrapping every branch's content in it — this is an EXISTING codebase convention already used by `AgentsListView/styles.ts`'s `page`, not a new pattern; any route missing this same wrapper will show the identical symptom.
+
+- **2026-08-16: the earlier "auto-redirect `/multi-agent` onto the single latest workspace-wide run" fix (previous session entry above) was reported by the user as broken UX — it felt "stuck" on one run with no way to see anything else — and was REPLACED, not patched.** `GET /multi-agent/latest` (single group) → `GET /multi-agent/recent` (lightweight `MultiAgentGroupSummary[]`, no columns/conflicts, one aggregated SQL query — see server insights) and a new `RecentRunsList` component render a real "recent runs" landing list (`_components/RecentRunsList/`, `Card` rows with a status `Badge`, click → `?pr=<id>`) instead of a `router.replace` redirect. The `?new=1` sentinel and its Configure-run-forcing behavior were kept as-is (still the right mechanism for "Start new review"); only the no-`pr`-no-`new` branch changed, from "fetch one + redirect" to "fetch N + list, fall through to Configure-run only when the list is empty". ⇒ When a fix is based on "show the most recent X", pressure-test whether the user actually wants recency-as-navigation (auto-jump) vs. recency-as-a-list (browse then pick) — they read as similar specs but are very different UX, and this one had to be built twice because the first reading was wrong.
+- The PR detail page (`PrDetailHeader.tsx`) had literally zero cross-link to Multi-Agent Review before this session — confirmed by grep, not assumed. Added a plain `Button` (`kind="ghost"`, icon `"Users"`) next to the existing `RunReviewDropdown` in `s.actions`, `onClick` → `router.push(\`/multi-agent?pr=${prId}\`)`. `PrDetailHeader.tsx` hardcodes ALL its copy in English with zero `useTranslations` calls anywhere in the file (not even the existing "View on GitHub" button) — added this button's "Multi-Agent Review" label the same way, matching this file's own established (if inconsistent-with-i18n-convention-elsewhere) pattern rather than introducing the first `t(...)` call into an otherwise all-hardcoded file.
+
+- **2026-08-16 — Export Wizard's `TargetStep` repo field: free-text → `SearchableSelect`, a
+  post-hoc reversal of a deliberate spec decision.** SPEC-04's clarification 9 explicitly chose a
+  plain `owner/name` `TextInput` over a repo picker as the "simplest workable option" — the
+  component's own header comment said so verbatim. The user later looked at the shipped wizard and
+  asked for exactly the picker that was deliberately deferred. Swapped to `SearchableSelect` fed by
+  `useRepos()` (`client/src/lib/hooks/core.ts`, `GET /repos`, already workspace-scoped
+  server-side — no extra plumbing needed), mirroring `ConfigTab`'s model picker
+  (`useProviderModels` → `SearchableSelect`) byte-for-byte in shape: `FormField` whose `hint` swaps
+  to an empty-state message (`isSuccess && options.length === 0`) instead of an inline error, same
+  as `ConfigTab`'s `noModels` branch. ⇒ Two takeaways: (1) **this codebase already has a reusable
+  "async-hook → `SearchableSelect` → `FormField`-hint-swaps-on-empty" pattern** — before building
+  any new dropdown-of-server-data field, grep for an existing `SearchableSelect` consumer
+  (`ConfigTab.tsx` is the canonical one) and copy its shape rather than inventing prop plumbing.
+  (2) A spec's "simplest option, deferred until real usage shows it's needed" resolution is
+  explicitly provisional, not a permanent constraint — when a user later asks for exactly the
+  deferred alternative, that's the mechanism working as intended, not scope creep to push back on.
+
+- **2026-08-16 — Export Wizard's Install step let a user reach a raw server 500 that a client-side
+  pre-flight check could have caught first.** `POST /agents/:id/export-ci` with `action:'open_pr'`
+  needs *DevDigest's own* `GITHUB_TOKEN` (server-side, via `SecretsProvider` — nothing to do with
+  the target repo's Actions secrets shown in `ConfigureStep`'s table) to actually call the GitHub
+  API. Nothing in the wizard checked whether that credential existed before letting the user click
+  Install, so a workspace that never configured it hit `ConfigError` → 500, surfaced only as a
+  generic toast + a scary devtools network error — no indication *why*, or that the fix is in
+  Settings. Fix: `GET /settings/secrets-status` (`useSecretsStatus()`, already existed and was
+  already used by the Settings page itself — `SettingsApiKeys.tsx`) returns a `{ github: boolean,
+  ... }` map of which provider secrets are configured, without ever exposing the values. Wired it
+  into `ExportWizard.tsx`, threaded a `githubConfigured?: boolean` prop down to `ConfigureStep`
+  (a status callout, kept visually and textually distinct from the *target repo's* secrets table
+  right above it — same env-var name, different credential, easy to conflate) and `InstallStep`
+  (disables the "Open a PR" button specifically — the zip-download degraded path is left enabled,
+  since it needs no server credential — with an inline warning + a `MonoLink` to
+  `/settings/api-keys`). ⇒ **General pattern for this codebase: before wiring any mutation that can
+  fail on a missing server-side secret, check whether a `*SecretsStatus`-shaped read already exists
+  and gate the triggering UI on it** — `useSecretsStatus()` is reusable as-is for any future
+  feature with the same shape of failure, not CI-specific.
+
+- **2026-08-16: fixed the reported "can't get back to the Multi-Agent Review page" bug — `MultiAgentReviewPage`'s `?pr=` mode split (see the 2026-08-16 PLAN-04 entry above) had no path back to a PAST run once you navigated away, since the sidebar's nav item links to bare `/multi-agent` (`vendor/ui/nav.ts`) and the `!prId` branch always rendered empty Configure-run, with no "start new review" affordance from the results view either.** Fixed with a `?new=1` sentinel query param, not client-only state: `!prId && !new` ⇒ fetch a new workspace-wide `GET /multi-agent/latest` (via `useLatestMultiAgentGroup`, `enabled: wantsLatest`) and `router.replace` onto `?pr=<found pr_id>` the instant it resolves (a loading skeleton covers the gap so Configure-run never flashes first); `!prId && new=1` ⇒ Configure-run, forced, ignoring any past run. The "Start new review" button (top of the results view, via `PageTitle`'s new optional `action` slot) just does `router.push("/multi-agent?new=1")` — a full URL replace drops any stale `pr`/`new` combination automatically, no manual param-stripping needed. Picking a PR from Configure-run (`handleSelectPr` → `router.push(\`/multi-agent?pr=${id}\`)`) was already unchanged and naturally clears `new=1` the same way. No localStorage involved — the "last run" is a server fact (`multi_agent_runs`, newest-first, no PR filter), not a per-browser one.
+
+- **2026-08-16: `MultiAgentReviewPage` (and any other top-level route rendered as a direct `<AppShell>` child) had zero page-level padding — `AppFrame.tsx`'s `<main>` applies NONE (`{flex:1, minHeight:0, overflow:"auto"}`), so a page's content stretches edge-to-edge / flush against the sidebar unless the page's own top-level wrapper supplies it.** `MultiAgentReviewPage` was rendering `PageTitle`/`ConfigureRun`/the results stack as direct `AppShell` children with no wrapper at all — reported as a visual bug (cards/panels stretching full viewport width with huge dead whitespace, title flush to the sidebar edge). Fixed by adding a `page` style (`padding: "24px 32px 44px", maxWidth: 1100, margin: "0 auto"`) and wrapping every branch's content in it — this is an EXISTING codebase convention already used by `AgentsListView/styles.ts`'s `page`, not a new pattern; any route missing this same wrapper will show the identical symptom.
+
+- **2026-08-16: the earlier "auto-redirect `/multi-agent` onto the single latest workspace-wide run" fix (previous session entry above) was reported by the user as broken UX — it felt "stuck" on one run with no way to see anything else — and was REPLACED, not patched.** `GET /multi-agent/latest` (single group) → `GET /multi-agent/recent` (lightweight `MultiAgentGroupSummary[]`, no columns/conflicts, one aggregated SQL query — see server insights) and a new `RecentRunsList` component render a real "recent runs" landing list (`_components/RecentRunsList/`, `Card` rows with a status `Badge`, click → `?pr=<id>`) instead of a `router.replace` redirect. The `?new=1` sentinel and its Configure-run-forcing behavior were kept as-is (still the right mechanism for "Start new review"); only the no-`pr`-no-`new` branch changed, from "fetch one + redirect" to "fetch N + list, fall through to Configure-run only when the list is empty". ⇒ When a fix is based on "show the most recent X", pressure-test whether the user actually wants recency-as-navigation (auto-jump) vs. recency-as-a-list (browse then pick) — they read as similar specs but are very different UX, and this one had to be built twice because the first reading was wrong.
+- The PR detail page (`PrDetailHeader.tsx`) had literally zero cross-link to Multi-Agent Review before this session — confirmed by grep, not assumed. Added a plain `Button` (`kind="ghost"`, icon `"Users"`) next to the existing `RunReviewDropdown` in `s.actions`, `onClick` → `router.push(\`/multi-agent?pr=${prId}\`)`. `PrDetailHeader.tsx` hardcodes ALL its copy in English with zero `useTranslations` calls anywhere in the file (not even the existing "View on GitHub" button) — added this button's "Multi-Agent Review" label the same way, matching this file's own established (if inconsistent-with-i18n-convention-elsewhere) pattern rather than introducing the first `t(...)` call into an otherwise all-hardcoded file.
+
 ## Open Questions
 
 - **RESOLVED 2026-07-09** — both gaps closed, see the matching Session Notes entry below
@@ -384,3 +436,73 @@
   inside `"workspace"` instead of `"compare"`. `next-intl`'s missing-key behavior is a silent
   fallback to the raw key path, not a build/typecheck error, so this only surfaces at
   render/test time, never at `pnpm typecheck`.
+
+- 2026-08-16 (SPEC-04 export-to-CI, step 4 — Export Wizard): two non-obvious traps building a
+  multi-step modal + its RTL tests. (1) **jsdom (v25, this repo's test env) has no
+  `URL.createObjectURL`** — `typeof URL.createObjectURL === "function"` is `false` under Vitest,
+  unlike a real browser. A component that triggers a client-side file download (e.g. `filesToZip`
+  → `URL.createObjectURL` → synthetic `<a download>` click) must guard that DOM call with a feature
+  check and let the pure blob-building step (here, `jszip`'s `generateAsync`) run regardless — Node's
+  global `Blob` DOES exist in this env, so the zip itself builds fine and is fully testable; only the
+  actual "save to disk" trigger needs the guard. Without it, clicking the download button throws in
+  every test that exercises it. (2) **Two sibling message keys that legitimately hold the identical
+  English string (e.g. a wizard step's `steps.install: "Install"` label and that same step's own
+  primary button `install: "Install"`, or a card's title matching its own action button's label)
+  render as duplicate DOM text nodes whenever both are mounted at once** — `screen.getByText(...)`
+  throws "found multiple elements" even though the copy is intentional and not a bug. Two fixes,
+  chosen per case: give one of the two a genuinely distinct string (e.g. button "Download zip" vs.
+  card title "Copy files as a zip") when they're pure duplication with no reason to match; or switch
+  the test query to something more specific than raw text (`getByRole("button", { name: ... })`,
+  `getAllByText(...)[0]`) when the duplication is legitimate (e.g. a file path shown both in a list
+  row and as the selected file's code-view label). Don't reflexively rename copy just to satisfy
+  `getByText` — check whether the duplication is real UI redundancy (a bug, worth fixing at the
+  component level, e.g. this step's `TargetStep` originally repeated "Target" as both the modal's
+  step-header label AND a redundant section `FormField` label inside the step body — removed) versus
+  intentional (query needs to be more specific instead).
+
+- 2026-08-16 (SPEC-04 export-to-CI, step 5 — Agent CI tab + `/ci-runs` page): two things worth
+  flagging for the next agent that touches a minute-bucketed relative-time helper or reuses
+  `EmptyState`'s `cta` prop. (1) **The `relativeTime` pattern already used by
+  `ContextPage/helpers.ts` (`Math.round(msAgo / 60_000)`, `< 1` ⇒ `"now"`) rounds 30–59s ago UP to
+  `1` due to JS's round-half-up, not down to `0`** — so "now" only actually covers the first ~29
+  seconds, not the first 59; a test asserting `"now"` for a fixture 30s in the past will get
+  `"1m"` instead. Use something comfortably under 30s (or comfortably over, for the `"1m"` case)
+  when hand-picking a fixture timestamp for this helper, in any of its now-multiple colocated
+  copies. (2) **`@devdigest/ui`'s `EmptyState` hardcodes its `cta` button's icon to `"Plus"`** —
+  if the `cta` string you pass already carries a leading symbol (e.g. `ci.json`'s
+  `ciTab.addToCi: "+ Add to CI"`, designed for a plain `Button` elsewhere), the rendered empty
+  state shows a Plus icon **and** a literal `+` in the text side by side. Not a bug (the same
+  string is intentionally reused for both a header button and an empty-state CTA, per the
+  2026-08-16 Export Wizard entry above on legitimate duplicate copy), but worth knowing before
+  reflexively "fixing" what looks like a doubled affordance — and a reminder that reusing one
+  button-shaped i18n string across two different button-rendering components (`Button` vs.
+  `EmptyState`'s internal button) can produce this kind of small visual overlap even when the
+  copy itself is correct.
+
+- 2026-08-16 (PLAN-04 step 4, Multi-Agent Review page): the `/multi-agent?pr=` mode split is NOT
+  "presence of `?pr=` alone ⇒ results view" despite the plan's routing bullet reading that way in
+  isolation — reconciled against D7 (`GET /pulls/:id/multi-agent` returns `200` + `null`, never
+  404, when the PR has no group yet) and the very next bullet ("Once a PR is picked… Selecting a
+  PR sets `?pr=`"), the real rule is: no `?pr=` ⇒ Configure-run (PR picker only); `?pr=` set but
+  `useMultiAgentRun(prId)` resolves to `null` ⇒ STILL Configure-run, now with that PR's agent
+  checklist enabled (AC-7); `?pr=` set and a real group comes back ⇒ results view. This makes
+  "starting a run stays on the page and flips to results" work for free — the mutation's
+  `onSuccess` already invalidates `["multi-agent", prId]`, the page is already at that URL, and
+  the next refetch just changes which branch renders; no extra `router.push` needed after a run
+  starts. D7's `.nullable()` response shape exists specifically to make this branch cheap to
+  detect without an error path.
+- 2026-08-16: `@devdigest/ui`'s `Toggle` (`vendor/ui/primitives/Toggle.tsx`) takes only
+  `{on, onChange, size}` — no `aria-label`/`aria-labelledby`/`...rest` passthrough, and it renders
+  its own `<button role="switch">`. Wrapping it in an outer `<button onClick=...>` to make a
+  clickable "label + switch" row (so clicking either toggles) produces an invalid nested
+  `<button><button/></button>` — don't do that. Render the label `<span>` and `<Toggle>` as plain
+  siblings in a flex row instead; only the Toggle itself is interactive.
+- 2026-08-16: a worktree-isolated agent's assigned worktree can be based on a commit that PREDATES
+  a prior step's integration commit even when the task briefing claims "step N is already merged
+  into your base" — confirmed by `grep`/`find` turning up nothing for the expected new files/
+  exports. Since sibling worktrees share the same `.git` object database, `git log --all --oneline
+  -- <path>` (run from your OWN worktree, no `cd`/`-C` to another worktree — that's blocked) will
+  still find the integration commit even though it's not on your current branch. If
+  `git merge-base --is-ancestor HEAD <that-commit>` is true, `git merge --ff-only <that-commit>`
+  is a safe, ordinary git operation confined to your own worktree (not a cross-worktree redirect)
+  that brings the missing foundation in without redoing any of its design work.

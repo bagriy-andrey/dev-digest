@@ -24,6 +24,7 @@ describe("activeKeyFor", () => {
     ["/settings", "settings"],
     ["/agents", "agents"],
     ["/skills", "skills"],
+    ["/ci-runs", "ci-runs"],
     ["/unknown-route", ""],
   ])("maps %s to %s", (pathname, expected) => {
     expect(activeKeyFor(pathname)).toBe(expected);
@@ -35,6 +36,13 @@ describe("activeKeyFor", () => {
   it("returns the exact key string the Eval Dashboard NAV entry expects", () => {
     expect(activeKeyFor("/eval")).toBe("eval-dashboard");
     expect(activeKeyFor("/eval")).not.toBe("eval");
+  });
+
+  // AC-44 — same near-miss trap for the CI Runs NAV entry (`nav.ts`'s new
+  // item's `key` must be exactly "ci-runs"; three separate consumers read it
+  // — Sidebar highlight, activeKeyFor (this function), and useShellCommands).
+  it("returns the exact key string the CI Runs NAV entry expects", () => {
+    expect(activeKeyFor("/ci-runs")).toBe("ci-runs");
   });
 });
 

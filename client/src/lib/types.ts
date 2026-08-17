@@ -63,6 +63,26 @@ export type {
   EvalBatchStartAll,
   AgentVersion,
 } from "@devdigest/shared";
+export type {
+  MultiAgentRun,
+  MultiAgentGroupSummary,
+  AgentColumn,
+  AgentColumnFinding,
+  Conflict,
+  ConflictTake,
+  AgentRunEstimate,
+} from "@devdigest/shared";
+export type { FindingRecord, ReviewRecord } from "@devdigest/shared";
+
+export type {
+  CiTarget,
+  CiFile,
+  CiExportInput,
+  CiInstallation,
+  CiExport,
+  CiRun,
+  CiRunStatus,
+} from "@devdigest/shared";
 
 /**
  * `GET /pulls/:id/blast`'s actual response shape: the `BlastRadius` contract

@@ -1,15 +1,25 @@
-/* RunReviewDropdown — ported from components2.jsx.
-   "Run all enabled agents" / a specific agent → kicks off POST /pulls/:id/review
-   and hands the resulting runIds up so the parent can stream SSE live status. */
+/* RunReviewDropdown — multi-select agent checklist for kicking off a
+   multi-agent review (SPEC-04). Ticking rows never starts anything; the
+   primary action starts exactly one HTTP request carrying every checked
+   agent id, then lands on the Multi-Agent Review results page.
+
+   The vendored `Dropdown` (`@devdigest/ui`) can't host this: its
+   `DropdownItem.onClick` closes the panel unconditionally and
+   `DropdownItemDef` has no `checked` field, so every checkbox tick would
+   close the panel. `vendor/ui/*` is off-limits beyond `nav.ts`, so this is a
+   small local popover instead — the same outside-click pattern
+   `vendor/ui/kit/Dropdown.tsx` itself uses. */
 "use client";
 
 import React from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Button, Dropdown, type DropdownItemDef } from "@devdigest/ui";
-import { useAgents } from "../../../../../../../lib/hooks/agents";
-import { useRunReview } from "../../../../../../../lib/hooks/reviews";
-import { DROPDOWN_WIDTH } from "./constants";
+import { Button, Checkbox, Icon } from "@devdigest/ui";
+import { useAgents } from "@/lib/hooks/agents";
+import { useAgentRunEstimates, useStartMultiAgentRun } from "@/lib/hooks/multi-agent";
+import { aggregateEstimate, estimateFor, formatCost, formatDuration, hasHistory } from "@/lib/multi-agent-estimates";
+import { POPOVER_WIDTH } from "./constants";
+import { s } from "./styles";
 
 export function RunReviewDropdown({
   prId,
@@ -34,68 +44,146 @@ export function RunReviewDropdown({
   const t = useTranslations("prReview");
   const router = useRouter();
   const { data: agents } = useAgents();
-  const run = useRunReview();
-  const all = agents ?? [];
-  const hasEnabled = all.some((a) => a.enabled);
+  const { data: estimates } = useAgentRunEstimates();
+  const start = useStartMultiAgentRun();
 
-  const kick = async (opts: { all?: boolean; agentId?: string }) => {
+  const [open, setOpen] = React.useState(false);
+  // Local component state only — no store, no context (AC-1).
+  const [checked, setChecked] = React.useState<Set<string>>(new Set());
+
+  const wrapperRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [open]);
+
+  const all = agents ?? [];
+  const sortedAgents = [...all].sort((a, b) => a.name.localeCompare(b.name));
+  const allEstimates = estimates ?? [];
+
+  const toggleAgent = (agentId: string, next: boolean) => {
+    setChecked((prev) => {
+      const nextSet = new Set(prev);
+      if (next) nextSet.add(agentId);
+      else nextSet.delete(agentId);
+      return nextSet;
+    });
+  };
+
+  // Derived, never mirrored into extra state.
+  const checkedIds = [...checked];
+  const canRun = checkedIds.length > 0 && !start.isPending;
+  const aggregate = aggregateEstimate(allEstimates, checkedIds);
+
+  const goToConfigureAgents = () => {
+    setOpen(false);
+    router.push("/multi-agent");
+  };
+
+  const handleRun = async () => {
+    // Never rely on the disabled attribute alone as the guard (jsdom ignores
+    // CSS pointer-events, and a stale click could still fire).
+    if (checkedIds.length === 0 || start.isPending) return;
     onRunStart?.();
     try {
-      const res = await run.mutateAsync({ prId, ...opts });
-      onRunsStarted?.(res.runs.map((r) => r.run_id));
+      const res = await start.mutateAsync({ prId, agentIds: checkedIds });
+      onRunsStarted?.(res.columns.map((c) => c.run_id));
+      setOpen(false);
+      router.push(`/multi-agent?pr=${prId}`);
     } finally {
       onRunSettled?.();
     }
   };
 
-  // List EVERY agent (not just enabled) so they're always visible; a specific
-  // agent can be run regardless of its enabled flag. "Run all" still targets
-  // only enabled agents.
-  const agentItems: DropdownItemDef[] = all.length
-    ? all.map((a) => ({
-        label: a.name,
-        icon: "Cpu" as const,
-        hint: a.enabled ? a.model : `${a.model} · disabled`,
-        onClick: () => kick({ agentId: a.id }),
-      }))
-    : [{ label: "No agents yet — create one", icon: "Plus", muted: true, onClick: () => router.push("/agents") }];
-
-  const items: DropdownItemDef[] = [
-    // Merged/closed PRs can still be reviewed (informational only); lead with a
-    // muted, non-actionable warning so the intent is clear.
-    ...(warnMerged
-      ? [
-          { label: t("runReview.mergedWarning"), icon: "AlertTriangle" as const, muted: true },
-          { divider: true } as DropdownItemDef,
-        ]
-      : []),
-    {
-      label: t("runReview.runAll"),
-      icon: "Play",
-      ...(hasEnabled ? {} : { muted: true }),
-      onClick: () => kick({ all: true }),
-    },
-    { divider: true },
-    ...agentItems,
-    { divider: true },
-    { label: t("runReview.configureAgents"), icon: "Settings", muted: true, onClick: () => router.push("/agents") },
-  ];
-
   return (
-    <Dropdown
-      width={DROPDOWN_WIDTH}
-      align="right"
-      items={items}
-      trigger={
+    <div ref={wrapperRef} style={s.wrapper}>
+      <div onClick={() => setOpen((o) => !o)}>
         <span
           title={warnMerged ? t("runReview.mergedTooltip") : undefined}
           style={warnMerged ? { opacity: 0.6 } : undefined}
         >
-          <Button kind={kind} size={size} iconRight="ChevronDown" icon="Sparkles" loading={run.isPending}>
-            {run.isPending ? t("runReview.running") : t("runReview.runReview")}
+          <Button kind={kind} size={size} iconRight="ChevronDown" icon="Sparkles" loading={start.isPending}>
+            {start.isPending ? t("runReview.running") : t("runReview.runReview")}
           </Button>
         </span>
-      }
-    />
+      </div>
+
+      {open && (
+        <div style={{ ...s.panel, width: POPOVER_WIDTH }}>
+          {warnMerged && (
+            <>
+              <div style={s.warningRow}>
+                <Icon.AlertTriangle size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                <span>{t("runReview.mergedWarning")}</span>
+              </div>
+              <div style={s.divider} />
+            </>
+          )}
+
+          {sortedAgents.length === 0 ? (
+            <div style={s.emptyRow}>{t("runReview.noAgents")}</div>
+          ) : (
+            <div style={s.agentList} role="group" aria-label={t("runReview.runReview")}>
+              {sortedAgents.map((a) => {
+                const est = estimateFor(allEstimates, a.id);
+                const estimateLabel = hasHistory(est)
+                  ? `${formatDuration(est?.avg_duration_ms ?? null)} · ${formatCost(est?.avg_cost_usd ?? null)}`
+                  : "—";
+                return (
+                  <div key={a.id} style={s.row}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Checkbox
+                        checked={checked.has(a.id)}
+                        onChange={(v) => toggleAgent(a.id, v)}
+                        label={
+                          <span style={s.rowMain}>
+                            <Icon.Cpu size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                            <span style={s.rowName}>{a.name}</span>
+                          </span>
+                        }
+                      />
+                    </div>
+                    <span style={s.rowEstimate}>{estimateLabel}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div style={s.divider} />
+          <button type="button" style={s.configureRow} onClick={goToConfigureAgents}>
+            <Icon.Settings size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+            <span>{t("runReview.configureAgents")}</span>
+          </button>
+          <div style={s.divider} />
+
+          <div style={s.footer}>
+            {checkedIds.length > 0 && (
+              <div style={s.aggregateLine}>
+                {t("runReview.aggregate", {
+                  duration: formatDuration(aggregate.durationMs),
+                  cost: formatCost(aggregate.costUsd),
+                })}
+              </div>
+            )}
+            <Button
+              kind="primary"
+              size="sm"
+              full
+              disabled={!canRun}
+              loading={start.isPending}
+              aria-label={t("runReview.runAction", { count: checkedIds.length })}
+              onClick={handleRun}
+            >
+              {t("runReview.runAction", { count: checkedIds.length })}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

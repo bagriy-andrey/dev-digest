@@ -1,0 +1,58 @@
+{
+  "title": "Multi-Agent Review",
+  "loading": "Loading…",
+  "configure": {
+    "step1": "1. Pick a pull request",
+    "step2": "2. Choose agents",
+    "pickPr": "Select a pull request…",
+    "noPrSelected": "Pick a pull request above to choose which agents review it.",
+    "selectAll": "Select all",
+    "runAction": "Run multi-agent review ({count})",
+    "starting": "Starting…",
+    "aggregate": "Estimated {duration} · {cost} · agents run in parallel",
+    "parallelFanOut": "Agents run in parallel — wall clock ≈ the slowest agent, cost ≈ the sum of each agent's own spend.",
+    "noHistory": "No run history yet",
+    "recentRunsTitle": "Recent runs",
+    "startError": "Couldn't start the review — try again."
+  },
+  "results": {
+    "columns": "Columns",
+    "tabs": "Tabs",
+    "agentCount": "{count} {count, plural, one {agent} other {agents}}",
+    "duration": "Duration",
+    "cost": "Cost",
+    "viewTrace": "View trace",
+    "startNew": "Start new review",
+    "parallelFanOut": "Parallel fan-out",
+    "status": {
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed"
+    },
+    "noFindings": "No findings from this agent."
+  },
+  "detail": {
+    "selectFinding": "Select a finding to see its details.",
+    "confidence": "Confidence",
+    "suggestion": "Suggested fix",
+    "accept": "Accept",
+    "dismiss": "Dismiss",
+    "learn": "Learn",
+    "evalCase": "Turn into eval case",
+    "comingSoon": "Coming soon — not available yet."
+  },
+  "conflicts": {
+    "title": "Where agents disagree",
+    "showOnlyConflicts": "Show only conflicts",
+    "didNotFlag": "Did not flag",
+    "empty": "No conflicts to show."
+  },
+  "empty": {
+    "title": "No group yet",
+    "body": "Run a multi-agent review to see results here."
+  },
+  "error": {
+    "title": "Couldn't load this review",
+    "body": "The engine returned an error."
+  }
+}

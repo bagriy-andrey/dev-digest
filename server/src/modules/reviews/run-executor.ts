@@ -105,33 +105,52 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
-    for (const { agent, runId } of jobs) {
-      const agentStart = Date.now();
+    // Concurrent fan-out: N agents cost ~N× tokens but ~1× wall clock (AC-19).
+    // allSettled never rejects, so one agent's failure cannot abort a sibling —
+    // the same per-agent isolation the sequential loop had (AC-20). No cap, no
+    // pool, no chunking: every selected agent starts at once.
+    await Promise.allSettled(
+      jobs.map(({ agent, runId }) => this.runJob(workspaceId, pull, repo, diff, agent, runId, runLog, logger)),
+    );
+  }
+
+  /** One queued agent's run + its start/done/failed logging (was the body of
+   *  `executeRuns`' loop before it became a concurrent fan-out). */
+  private async runJob(
+    workspaceId: string,
+    pull: PullRow,
+    repo: typeof schema.repos.$inferSelect,
+    diff: UnifiedDiff,
+    agent: AgentRow,
+    runId: string,
+    runLog: RunLogger,
+    logger?: Logger,
+  ): Promise<void> {
+    const agentStart = Date.now();
+    logger?.info(
+      { runId, agent: agent.name, provider: agent.provider, model: agent.model, prId: pull.id },
+      `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
+    );
+    try {
+      const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
       logger?.info(
-        { runId, agent: agent.name, provider: agent.provider, model: agent.model, prId: pull.id },
-        `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
+        {
+          runId,
+          agent: agent.name,
+          findings: outcome.findings.length,
+          grounding: outcome.grounding,
+          durationMs: Date.now() - agentStart,
+        },
+        `review: agent "${agent.name}" done — ${outcome.findings.length} finding(s)`,
       );
-      try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
-        logger?.info(
-          {
-            runId,
-            agent: agent.name,
-            findings: outcome.findings.length,
-            grounding: outcome.grounding,
-            durationMs: Date.now() - agentStart,
-          },
-          `review: agent "${agent.name}" done — ${outcome.findings.length} finding(s)`,
-        );
-      } catch (err) {
-        // runOneAgent already persisted the failure/cancel (status + error +
-        // trace) and completed the bus; here we only log at the run level.
-        const cancelled = err instanceof RunCancelledError;
-        logger?.[cancelled ? 'info' : 'error'](
-          { runId, agent: agent.name, err: (err as Error).message, durationMs: Date.now() - agentStart },
-          `review: agent "${agent.name}" ${cancelled ? 'cancelled' : 'failed'}`,
-        );
-      }
+    } catch (err) {
+      // runOneAgent already persisted the failure/cancel (status + error +
+      // trace) and completed the bus; here we only log at the run level.
+      const cancelled = err instanceof RunCancelledError;
+      logger?.[cancelled ? 'info' : 'error'](
+        { runId, agent: agent.name, err: (err as Error).message, durationMs: Date.now() - agentStart },
+        `review: agent "${agent.name}" ${cancelled ? 'cancelled' : 'failed'}`,
+      );
     }
   }
 

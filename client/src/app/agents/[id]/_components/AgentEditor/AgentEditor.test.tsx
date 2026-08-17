@@ -18,6 +18,15 @@ vi.mock("./_components/EvalsTab", () => ({
   EvalsTab: () => <div data-testid="evals-tab" />,
 }));
 
+// CiTab likewise has its own dedicated test suite (CiTab/CiTab.test.tsx) —
+// stub it here to prove the CI tab is reachable at all: `page.tsx`'s
+// VALID_TABS already allows "ci", so this only passes if BOTH `TABS` (in
+// constants.ts) AND this render branch were updated (AC-36's guard, the
+// same "key in one allowlist but not the other" failure mode as AC-37).
+vi.mock("./_components/CiTab", () => ({
+  CiTab: () => <div data-testid="ci-tab" />,
+}));
+
 import { AgentEditor } from "./AgentEditor";
 
 afterEach(cleanup);
@@ -68,6 +77,21 @@ describe("A2 Agent Editor (smoke)", () => {
       </NextIntlClientProvider>,
     );
     expect(screen.getByTestId("evals-tab")).toBeInTheDocument();
+    expect(screen.queryByText("Configuration")).not.toBeInTheDocument();
+  });
+
+  it("renders the CI tab when opened with ?tab=ci and keeps it selected across re-renders (AC-36)", () => {
+    const { rerender } = renderWithIntl(<AgentEditor agent={AGENT} tab="ci" onTab={() => {}} />);
+    expect(screen.getByTestId("ci-tab")).toBeInTheDocument();
+
+    rerender(
+      <NextIntlClientProvider locale="en" messages={{ agents: messages }}>
+        <ToastProvider>
+          <AgentEditor agent={AGENT} tab="ci" onTab={() => {}} />
+        </ToastProvider>
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByTestId("ci-tab")).toBeInTheDocument();
     expect(screen.queryByText("Configuration")).not.toBeInTheDocument();
   });
 });
