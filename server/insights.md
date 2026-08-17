@@ -380,6 +380,24 @@
   git-data-write routes `commitFiles` touches) rather than only the one that failed first in
   testing.**
 
+- **`ReviewRunExecutor.executeRuns`/`runOneAgent` (`modules/reviews/run-executor.ts:108-135`) is NOT
+  parallel — it's a plain sequential `for (const { agent, runId } of jobs) { ... await
+  this.runOneAgent(...) }` loop.** Only per-agent FAILURE isolation (the try/catch around each job)
+  is real; nothing awaits multiple jobs concurrently, and there is no worktree isolation anywhere in
+  `server/src` either — the only "worktree" string match in the whole package is an unrelated
+  `git reset --hard` code comment in `adapters/git/simple-git.ts:79`. The single shared diff/intent
+  load before the loop is real reuse, but the fan-out itself is not. Found while spec'ing
+  `specs/SPEC-03-multi-agent-review.md` (originally written as "reuse: parallel execution already
+  works, fan-out via worktrees" in the source requirement doc — that claim is FALSE against the
+  actual code). ⇒ Any future feature assuming "agents already run in parallel" must verify against
+  this loop first; building real concurrency (e.g. `Promise.all`/a bounded pool over `jobs`, plus
+  deciding whether concurrent agents need actual filesystem/worktree isolation or can safely share
+  one read-only clone) is genuine net-new work on this file, not something to reuse as-is.
+
+- **The Multi-Agent Review read model (`MultiAgentService.latest`, `modules/multi-agent/service.ts`) had no workspace-wide "latest group across any PR" query — only per-PR (`latestGroupForPull`).** Needed to fix a UI bug where reopening `/multi-agent` with no PR context always forced the empty Configure-run screen even after a run existed. Added `MultiAgentRepository.latestGroupForWorkspace(workspaceId)` (same shape as `latestGroupForPull` minus the `prId` predicate, ordered by `ranAt desc`) + `MultiAgentService.latestForWorkspace()` + `GET /multi-agent/latest`. Refactored the column/conflict/totals composition (previously inlined in `latest()`) into a shared private `composeGroup(prId, prNumber, group, logger)` so both entry points build the same `MultiAgentRun` shape without duplicating the `runsForGroup`/`reviewsForRuns`/`findingsForRuns`/`computeConflicts`/`totalsFor` pipeline. `latestForWorkspace` resolves the PR row itself (needed for `pr_number`) and returns `null` defensively if it's missing, mirroring D7's "never 404" convention rather than the per-PR route's `NotFoundError`.
+
+- **2026-08-16: `GET /multi-agent/latest` (added earlier the same session) was replaced with `GET /multi-agent/recent` after the single-latest-run redirect it backed turned out to be the wrong UX (see client insights.md).** The replacement (`MultiAgentRepository.recentGroupsForWorkspace`) is a single grouped/aggregated query — `multi_agent_runs` INNER JOIN `pull_requests` (for `pr_number`/`pr_title`) LEFT JOIN `agent_runs` (for per-group `count`/status breakdown/`max(duration_ms)`/`sum(cost_usd)`), `GROUP BY` the group id, `ORDER BY ran_at DESC LIMIT N` — NOT N calls to the existing `runsForGroup`/`reviewsForRuns`/`findingsForRuns` pipeline (`composeGroup`), since a lightweight list (no columns/conflicts needed) doesn't justify that per-group N+1 cost. Two Postgres/postgres-js gotchas hit building the aggregate: (1) `count(*) filter (where ...)` returns `bigint` (int8), which the postgres-js driver does NOT auto-narrow to a JS `number` the way drizzle's own `count()` helper does internally — an explicit `::int` cast in the raw `sql\`...\`` fragment is required, or the field silently becomes a string/BigInt at runtime despite `sql<number>` claiming otherwise at the type level. (2) `max(duration_ms)` (an `integer` column) and `sum(cost_usd)` (a `doublePrecision` column) do NOT have this problem — Postgres's `max()` on `int4` stays `int4`, and `sum()` on `float8` stays `float8`, both of which postgres-js parses as plain numbers natively; only the `count`/`count(*) filter` family needs the cast.
+
 ## Session Notes
 
 - 2026-06-22: added `findings_by_severity` to `PrMeta` + `GET /repos/:id/pulls` route; removed the prior "intentionally not surfaced" comment that blocked this.
@@ -617,3 +635,22 @@
   `/findings/:id/eval-case`, both create rows with zero LLM calls). Implemented with 3 rate-limited
   routes (matching the table, the actual ground truth), not 4 — worth a heads-up to whoever reviews
   this against the plan's prose.
+
+- 2026-08-16: Implemented `modules/multi-agent/` (SPEC-04/PLAN-04 step 2 —
+  `constants`/`helpers`/`repository`/`service`/`routes`, registered in
+  `modules/index.ts`) + the four `modules/reviews/` edits (`resolveTargets`'s
+  `agentIds` branch, `runReview`'s `opts.multiAgentRunId`, `createAgentRun`'s
+  new field in both the impl and the facade, and `executeRuns`' loop →
+  `Promise.allSettled` via an extracted `runJob` private method). One
+  composition wrinkle not covered by the `BriefService`-composition precedent
+  above: `ReviewRunExecutor`'s `Logger` type (the pino-shaped `{info,warn,
+  error,debug}` used by `runReview`/`start`) is defined and exported in
+  `modules/reviews/run-executor.ts`, but `modules/reviews/service.ts` only
+  imports it (`import { ReviewRunExecutor, type Logger } from
+  './run-executor.js'`) — it does NOT re-export it. A sibling module composing
+  `ReviewService` and wanting to type its own `logger?: Logger` parameter the
+  same way must import `Logger` from `../reviews/run-executor.js` directly,
+  not from `../reviews/service.js` (which would fail to resolve the type at
+  all, not just warn). Confirmed clean by `pnpm typecheck`; existing
+  `run-executor.test.ts` (single-job-per-test, so allSettled-vs-sequential is
+  unobservable there) needed zero changes — all 300 hermetic tests green.

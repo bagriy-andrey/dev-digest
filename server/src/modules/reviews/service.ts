@@ -41,12 +41,21 @@ export class ReviewService {
   // ===========================================================================
 
   /**
-   * Resolve which agents to run. `all` → all enabled agents; else a single agent.
+   * Resolve which agents to run. `agentIds` (arbitrary subset, multi-agent)
+   * takes precedence over `all`/`agentId`; `all` → all enabled agents; else a
+   * single agent.
    */
   async resolveTargets(
     workspaceId: string,
-    opts: { agentId?: string; all?: boolean },
+    opts: { agentId?: string; all?: boolean; agentIds?: string[] },
   ): Promise<AgentRow[]> {
+    if (opts.agentIds && opts.agentIds.length > 0) {
+      const ids = [...new Set(opts.agentIds)]; // duplicate ids ⇒ one selection (spec edge case)
+      const found = await Promise.all(ids.map((id) => this.agents.getById(workspaceId, id)));
+      const missing = ids.filter((_, i) => !found[i]);
+      if (missing.length) throw new NotFoundError('Agent not found'); // 4xx, BEFORE any row is created (AC-13)
+      return found as AgentRow[];
+    }
     if (opts.all) return this.agents.listEnabled(workspaceId);
     if (opts.agentId) {
       const agent = await this.agents.getById(workspaceId, opts.agentId);
@@ -105,6 +114,7 @@ export class ReviewService {
     prId: string,
     targets: AgentRow[],
     logger?: Logger,
+    opts?: { multiAgentRunId?: string },
   ): Promise<{ runs: { run_id: string; agent_id: string; agent_name: string }[]; reviews: ReviewDto[] }> {
     const pull = await this.repo.getPull(workspaceId, prId);
     if (!pull) throw new NotFoundError('Pull request not found');
@@ -123,6 +133,7 @@ export class ReviewService {
         prId,
         provider: agent.provider,
         model: agent.model,
+        multiAgentRunId: opts?.multiAgentRunId ?? null,
       });
       runs.push({ run_id: runId, agent_id: agent.id, agent_name: agent.name });
       jobs.push({ agent, runId });

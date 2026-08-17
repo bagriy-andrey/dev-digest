@@ -43,6 +43,8 @@
 
 - **An `implementer` finishing a step and reporting file-by-file success does NOT mean its worktree has a commit** — on `/sdd-build`'s Eval Pipeline run (5 of 5 dispatched implementers so far), every single one left its changes staged-or-modified but **uncommitted** in its own worktree, despite fully completing its declared file list and reporting typecheck/test results. `git merge --no-ff <worktree-branch>` on an uncommitted worktree silently reports **"Already up to date"** (the branch tip genuinely has no new commit) — this looks like a no-op merge, not an error, so it's easy to mistake for "nothing to integrate" instead of "the work exists only in an uncommitted working tree." ⇒ Before merging any `implementer` worktree branch into the integration branch, always `cd` into that worktree and run `git status` first; if there are uncommitted changes, `git add` + `git commit` them there before merging — do not trust "already up to date" as proof a step produced no changes. This is now a required step in `/sdd-build`'s own integration procedure, not an edge case.
 
+  **2026-08-16 addendum — "Already up to date" has a SECOND, unrelated root cause: the caller's own shell `cd`'d into a worktree earlier and never `cd`'d back.** On `/sdd-build`'s PLAN-04-multi-agent-review run, an earlier step used `Bash` to `cd` directly into an implementer's worktree (`/Users/.../.claude/worktrees/agent-<id>`) to inspect its `git status` — that `cd` had no matching `cd` back, and the Bash tool's cwd **persists across separate tool calls** in the same session. A later, unrelated `git merge --no-ff worktree-agent-<id> ...` call — intended to run from the integration branch's worktree — silently executed **inside that same implementer's own worktree instead**, so it was really running `git merge <this-branch> ` while already on `<this-branch>`: a trivial no-op that also prints "Already up to date," even though the branch had two brand-new, fully committed commits (verified after the fact with `git cat-file -t <hash>` — both existed) and correctly showed as an ancestor-with-new-commits (`git merge-base --is-ancestor HEAD <branch>` was true) once run from the *correct* directory. Symptom that distinguishes this from the original entry above: `git branch --show-current` reports the **worktree's own branch name**, not the integration branch, at the moment "Already up to date" prints. ⇒ Before trusting "Already up to date" as "nothing to merge," always check `pwd`/`git branch --show-current` first — if a prior command in the same session `cd`'d into another worktree, the shell may still be sitting there. Prefer running merges with an explicit `git -C <integration-worktree-path> merge ...` (or `cd` back explicitly, verified with `pwd`, immediately after any inspection `cd`) rather than relying on the shell's ambient cwd staying put across a long multi-tool-call session.
+
 - **Running `/sdd-build`'s tier-merge `git checkout <integration-branch>` / `git merge` steps directly in the user's live working directory can silently hang an already-running dev server that watches that same directory.** On this session's Eval Pipeline run, the user had `./scripts/dev.sh` running in another terminal (`tsx watch src/server.ts` + `next dev`) for the whole build. After several `git checkout`/`git merge --no-ff` cycles integrating 9 implementer branches into `eval-pipeline` in that same directory, the user's `tsx watch` process was still alive (correct PID, no crash, no error logged) but had never bound to port 3001 — `lsof -i :3001` showed nothing, `curl` timed out, and the client showed a generic "Cannot reach the DevDigest engine" error with no indication of the cause. A freshly-started `node`/`tsx` process in the same directory bound to 3001 immediately, proving the code/DB were fine — only the long-running watched process was stuck, almost certainly from `tsx watch`'s file-watcher choking on the burst of file creates/modifies/deletes a multi-branch merge produces underneath it while it's mid-restart. ⇒ Symptom to recognize: the watched process's PID is still alive and never crashed, but nothing is listening on its port — check `lsof -i :<port>` before assuming a code/DB problem; the fix is killing and restarting the stuck process (`./scripts/dev.sh` again), not debugging the app. Ideally stop the user's dev server before a `/sdd-build` run touches the shared working directory with git operations, and restart it after.
 
 - Per-run **cost is already computed by `reviewer-core`** end-to-end: `ReviewOutcome.costUsd`
@@ -136,6 +138,26 @@
   precedent artifact is inert scaffolding — check whether an existing, fully-working mechanism in
   an unrelated-looking module (here: agent config editing) was already built with this feature's
   needs in mind, and reuse it as-is rather than building a parallel versioning/snapshot system.
+- **2026-08-15 addendum (Multi-Agent Review spec grounding, `specs/SPEC-03-multi-agent-review.md`):
+  a FIFTH confirmed instance, with the contract's own JSDoc already documenting the feature's
+  business rule.** `server/src/vendor/shared/contracts/observability.ts` (mirrored in the client's
+  vendored copy) already defines `MultiAgentRun`/`AgentColumn`/`AgentColumnFinding`/`Conflict`/
+  `ConflictTake` (plus `AgentStats`/`StatPoint`/`CuratorMerge`/`CuratorResult` for a later,
+  still-unbuilt Per-Agent-Stats / memory-curator feature) — response shapes for
+  `POST /pulls/:id/multi-agent-run`, `GET /pulls/:id/multi-agent`, `GET /agents/:id/stats` —
+  attributed in the file's own header comment to a contributor "A5," with zero server routes or
+  client consumers anywhere in the repo. The `Conflict` type's JSDoc already states the cross-agent
+  grouping rule verbatim ("a file:line that at least one agent flagged and at least one other agent
+  that also reviewed did NOT, OR where agents assigned divergent severities") — the business-logic
+  decision was pre-recorded in a doc-comment, not just the response shape. Matches the
+  `multi_agent_runs` DB table stub (`id, workspace_id, pr_id, ran_at`, no FK to `agent_runs`) — same
+  unwired-scaffolding shape as Intent/Blast/PrBrief/Eval-Pipeline above. Separately (not part of the
+  pattern, but found in the same audit): `RunRequest` (`POST /pulls/:id/review` body) only supports
+  `{agentId}` (one) or `{all: true}` — no arbitrary-subset selection exists yet, needed for a
+  multi-select agent picker. ⇒ When scoping this feature, read the `Conflict`/`ConflictTake` JSDoc
+  as the authoritative match-rule spec before inventing a new one, and treat `AgentStats`/
+  `CuratorResult` as reserved names for a LATER feature, not something to build now.
+
   (frontmatter `name: implementation-planner`) and its scope was tightened: it never authors or
   redefines product requirements/specs, only turns already-defined requirements into a build
   breakdown.** It still writes to `<module>/specs/*.md` (that path convention didn't change) and

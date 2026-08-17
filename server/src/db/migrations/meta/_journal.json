@@ -134,6 +134,13 @@
       "when": 1786861579645,
       "tag": "0018_vengeful_bruce_banner",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786825022834,
+      "tag": "0019_dazzling_ego",
+      "breakpoints": true
     }
   ]
 }

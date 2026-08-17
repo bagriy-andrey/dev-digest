@@ -63,6 +63,16 @@ export type {
   EvalBatchStartAll,
   AgentVersion,
 } from "@devdigest/shared";
+export type {
+  MultiAgentRun,
+  MultiAgentGroupSummary,
+  AgentColumn,
+  AgentColumnFinding,
+  Conflict,
+  ConflictTake,
+  AgentRunEstimate,
+} from "@devdigest/shared";
+export type { FindingRecord, ReviewRecord } from "@devdigest/shared";
 
 export type {
   CiTarget,
