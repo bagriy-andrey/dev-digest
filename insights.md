@@ -252,6 +252,14 @@
   shape — check for the `SPEC-` filename prefix before assuming EARS structure, and never rename
   or rewrite a legacy doc into the new format without being explicitly asked to.
 
+- **A `SPEC-NN` id can be claimed by a file whose *filename* has no `SPEC-NN-` prefix at all** —
+  `specs/eval-pipeline.md` has no numeric filename prefix but its first line declares `Spec ID:
+  SPEC-03`. ⇒ Before assigning the next spec number, `grep -rn "Spec ID: SPEC-" specs/**/*.md
+  server/specs/**/*.md client/specs/**/*.md` (or equivalent) rather than inferring the next free
+  number from filenames alone — a directory listing undercounts claimed ids. (Caught while writing
+  `specs/SPEC-04-export-to-ci.md`: the request asked for `SPEC-03`, which was silently already
+  taken.)
+
 ## Tool & Library Notes
 
 - **`./scripts/dev.sh` backgrounded via a trailing `&` in an agent shell "completes" almost
@@ -382,6 +390,23 @@
   repeatedly re-reading its target files or output — that's noisy and rarely tells you more than
   waiting for the actual completion notification; only re-read after a `failed`/`completed`
   notification actually arrives.)
+
+- **Bash's cwd reset behavior between tool calls is inconsistent, and this bit `/sdd-build`'s own
+  merge step**: after one call shaped `cd <worktree-A> && git commit ...`, the harness reset the
+  shell's cwd back to the orchestrator's own directory before the *next* call — but after the very
+  next call, shaped `cd <worktree-B> && git commit ...`, the cwd did **not** reset and silently
+  stayed inside worktree-B. A third command run with no explicit `cd` (`git merge --no-ff
+  <worktree-A-branch> ...`, intended for the integration branch) therefore executed inside
+  worktree-B instead, merging step A's work into step B's branch rather than into the integration
+  branch — a wrong-branch merge that succeeds silently (no error, a normal-looking merge commit)
+  and is only caught by explicitly checking `git branch --show-current` / `git log --graph`
+  afterward. ⇒ During any multi-worktree integrate-and-merge sequence (the `/sdd-build` Step 2
+  "merge every branch from this tier" procedure), never rely on a preceding `cd` to set state for a
+  later, separate Bash call — use `git -C <absolute-worktree-path> <command>` for every single git
+  invocation instead, so each command's target is explicit regardless of what the shell's actual
+  cwd happens to be. (The accidental merge was still recoverable: the two branches' combined result
+  was simply merged as one unit into the correct integration branch afterward — no work was lost,
+  but it cost an extra investigation pass to notice.)
 
 ## Session Notes
 

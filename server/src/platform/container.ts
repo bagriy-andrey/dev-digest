@@ -14,6 +14,8 @@ import { runBus, type RunBus } from './sse.js';
 import { LocalSecretsProvider } from '../adapters/secrets/local.js';
 import { LocalNoAuthProvider } from '../adapters/auth/local.js';
 import { OctokitGitHubClient } from '../adapters/github/octokit.js';
+import { OctokitActionsClient } from '../adapters/github/actions.js';
+import type { ActionsClient } from '../modules/ci/types.js';
 import { SimpleGitClient } from '../adapters/git/simple-git.js';
 import { RipgrepCodeIndex } from '../adapters/codeindex/ripgrep.js';
 import { OpenAIProvider } from '../adapters/llm/openai.js';
@@ -51,6 +53,8 @@ export interface ContainerOverrides {
   /** repo-intel T3 adapters — only the indexer pipeline reads these. */
   depgraph?: DepGraph;
   tokenizer?: Tokenizer;
+  /** D2 — the GitHub Actions API surface (module-local port, `modules/ci/types.ts`). */
+  githubActions?: ActionsClient;
 }
 
 export class Container {
@@ -63,6 +67,7 @@ export class Container {
 
   private _git?: GitClient;
   private _github?: GitHubClient;
+  private _githubActions?: ActionsClient;
   private _codeIndex?: CodeIndex;
   private _embedder?: Embedder;
   private llmCache = new Map<string, LLMProvider>();
@@ -159,6 +164,21 @@ export class Container {
     return this._github;
   }
 
+  /**
+   * The GitHub Actions API surface (D2, `modules/ci/types.ts::ActionsClient`)
+   * — CI ingest's read-only workflow-runs/artifacts client. Mirrors `github()`:
+   * secret via `SecretsProvider`, `ConfigError` when absent, cached, and
+   * cleared alongside `github()` in `invalidateSecretCaches`.
+   */
+  async githubActions(): Promise<ActionsClient> {
+    if (this.overrides.githubActions) return this.overrides.githubActions;
+    if (this._githubActions) return this._githubActions;
+    const token = await this.secrets.get('GITHUB_TOKEN');
+    if (!token) throw new ConfigError('GITHUB_TOKEN is not configured');
+    this._githubActions = new OctokitActionsClient(token);
+    return this._githubActions;
+  }
+
   /** Resolve an LLM provider by id; constructs from the secret key, cached. */
   async llm(id: 'openai' | 'anthropic' | 'openrouter'): Promise<LLMProvider> {
     const injected = this.overrides.llm?.[id];
@@ -214,6 +234,7 @@ export class Container {
   invalidateSecretCaches(): void {
     this.llmCache.clear();
     this._github = undefined;
+    this._githubActions = undefined;
     this._embedder = undefined;
   }
 }

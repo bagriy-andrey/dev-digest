@@ -12,7 +12,7 @@
     "openrouterLabel": "OpenRouter API key",
     "openrouterHint": "One key, many cheap models (DeepSeek/GLM/MiniMax). Used by CI reviewers + openrouter agents.",
     "githubLabel": "GitHub PAT (fine-grained)",
-    "githubHint": "Contents (read), Pull requests (read+write), Metadata (read), Actions (read).",
+    "githubHint": "Contents (read+write), Pull requests (read+write), Workflows (read+write), Metadata (read), Actions (read). Contents write + Workflows write are both required to export an agent to CI — GitHub rejects a workflow-file push under Contents access alone.",
     "placeholder": "•••• stored via SecretsProvider (.env)",
     "testConnection": "Test connection",
     "testing": "Testing…",

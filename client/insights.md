@@ -264,6 +264,43 @@
   need `BlastRadiusCard` to cap/paginate/virtualize its own symbol list, out of scope for
   a layout-parity fix.
 
+- **2026-08-16 — Export Wizard's `TargetStep` repo field: free-text → `SearchableSelect`, a
+  post-hoc reversal of a deliberate spec decision.** SPEC-04's clarification 9 explicitly chose a
+  plain `owner/name` `TextInput` over a repo picker as the "simplest workable option" — the
+  component's own header comment said so verbatim. The user later looked at the shipped wizard and
+  asked for exactly the picker that was deliberately deferred. Swapped to `SearchableSelect` fed by
+  `useRepos()` (`client/src/lib/hooks/core.ts`, `GET /repos`, already workspace-scoped
+  server-side — no extra plumbing needed), mirroring `ConfigTab`'s model picker
+  (`useProviderModels` → `SearchableSelect`) byte-for-byte in shape: `FormField` whose `hint` swaps
+  to an empty-state message (`isSuccess && options.length === 0`) instead of an inline error, same
+  as `ConfigTab`'s `noModels` branch. ⇒ Two takeaways: (1) **this codebase already has a reusable
+  "async-hook → `SearchableSelect` → `FormField`-hint-swaps-on-empty" pattern** — before building
+  any new dropdown-of-server-data field, grep for an existing `SearchableSelect` consumer
+  (`ConfigTab.tsx` is the canonical one) and copy its shape rather than inventing prop plumbing.
+  (2) A spec's "simplest option, deferred until real usage shows it's needed" resolution is
+  explicitly provisional, not a permanent constraint — when a user later asks for exactly the
+  deferred alternative, that's the mechanism working as intended, not scope creep to push back on.
+
+- **2026-08-16 — Export Wizard's Install step let a user reach a raw server 500 that a client-side
+  pre-flight check could have caught first.** `POST /agents/:id/export-ci` with `action:'open_pr'`
+  needs *DevDigest's own* `GITHUB_TOKEN` (server-side, via `SecretsProvider` — nothing to do with
+  the target repo's Actions secrets shown in `ConfigureStep`'s table) to actually call the GitHub
+  API. Nothing in the wizard checked whether that credential existed before letting the user click
+  Install, so a workspace that never configured it hit `ConfigError` → 500, surfaced only as a
+  generic toast + a scary devtools network error — no indication *why*, or that the fix is in
+  Settings. Fix: `GET /settings/secrets-status` (`useSecretsStatus()`, already existed and was
+  already used by the Settings page itself — `SettingsApiKeys.tsx`) returns a `{ github: boolean,
+  ... }` map of which provider secrets are configured, without ever exposing the values. Wired it
+  into `ExportWizard.tsx`, threaded a `githubConfigured?: boolean` prop down to `ConfigureStep`
+  (a status callout, kept visually and textually distinct from the *target repo's* secrets table
+  right above it — same env-var name, different credential, easy to conflate) and `InstallStep`
+  (disables the "Open a PR" button specifically — the zip-download degraded path is left enabled,
+  since it needs no server credential — with an inline warning + a `MonoLink` to
+  `/settings/api-keys`). ⇒ **General pattern for this codebase: before wiring any mutation that can
+  fail on a missing server-side secret, check whether a `*SecretsStatus`-shaped read already exists
+  and gate the triggering UI on it** — `useSecretsStatus()` is reusable as-is for any future
+  feature with the same shape of failure, not CI-specific.
+
 ## Open Questions
 
 - **RESOLVED 2026-07-09** — both gaps closed, see the matching Session Notes entry below
@@ -384,3 +421,45 @@
   inside `"workspace"` instead of `"compare"`. `next-intl`'s missing-key behavior is a silent
   fallback to the raw key path, not a build/typecheck error, so this only surfaces at
   render/test time, never at `pnpm typecheck`.
+
+- 2026-08-16 (SPEC-04 export-to-CI, step 4 — Export Wizard): two non-obvious traps building a
+  multi-step modal + its RTL tests. (1) **jsdom (v25, this repo's test env) has no
+  `URL.createObjectURL`** — `typeof URL.createObjectURL === "function"` is `false` under Vitest,
+  unlike a real browser. A component that triggers a client-side file download (e.g. `filesToZip`
+  → `URL.createObjectURL` → synthetic `<a download>` click) must guard that DOM call with a feature
+  check and let the pure blob-building step (here, `jszip`'s `generateAsync`) run regardless — Node's
+  global `Blob` DOES exist in this env, so the zip itself builds fine and is fully testable; only the
+  actual "save to disk" trigger needs the guard. Without it, clicking the download button throws in
+  every test that exercises it. (2) **Two sibling message keys that legitimately hold the identical
+  English string (e.g. a wizard step's `steps.install: "Install"` label and that same step's own
+  primary button `install: "Install"`, or a card's title matching its own action button's label)
+  render as duplicate DOM text nodes whenever both are mounted at once** — `screen.getByText(...)`
+  throws "found multiple elements" even though the copy is intentional and not a bug. Two fixes,
+  chosen per case: give one of the two a genuinely distinct string (e.g. button "Download zip" vs.
+  card title "Copy files as a zip") when they're pure duplication with no reason to match; or switch
+  the test query to something more specific than raw text (`getByRole("button", { name: ... })`,
+  `getAllByText(...)[0]`) when the duplication is legitimate (e.g. a file path shown both in a list
+  row and as the selected file's code-view label). Don't reflexively rename copy just to satisfy
+  `getByText` — check whether the duplication is real UI redundancy (a bug, worth fixing at the
+  component level, e.g. this step's `TargetStep` originally repeated "Target" as both the modal's
+  step-header label AND a redundant section `FormField` label inside the step body — removed) versus
+  intentional (query needs to be more specific instead).
+
+- 2026-08-16 (SPEC-04 export-to-CI, step 5 — Agent CI tab + `/ci-runs` page): two things worth
+  flagging for the next agent that touches a minute-bucketed relative-time helper or reuses
+  `EmptyState`'s `cta` prop. (1) **The `relativeTime` pattern already used by
+  `ContextPage/helpers.ts` (`Math.round(msAgo / 60_000)`, `< 1` ⇒ `"now"`) rounds 30–59s ago UP to
+  `1` due to JS's round-half-up, not down to `0`** — so "now" only actually covers the first ~29
+  seconds, not the first 59; a test asserting `"now"` for a fixture 30s in the past will get
+  `"1m"` instead. Use something comfortably under 30s (or comfortably over, for the `"1m"` case)
+  when hand-picking a fixture timestamp for this helper, in any of its now-multiple colocated
+  copies. (2) **`@devdigest/ui`'s `EmptyState` hardcodes its `cta` button's icon to `"Plus"`** —
+  if the `cta` string you pass already carries a leading symbol (e.g. `ci.json`'s
+  `ciTab.addToCi: "+ Add to CI"`, designed for a plain `Button` elsewhere), the rendered empty
+  state shows a Plus icon **and** a literal `+` in the text side by side. Not a bug (the same
+  string is intentionally reused for both a header button and an empty-state CTA, per the
+  2026-08-16 Export Wizard entry above on legitimate duplicate copy), but worth knowing before
+  reflexively "fixing" what looks like a doubled affordance — and a reminder that reusing one
+  button-shaped i18n string across two different button-rendering components (`Button` vs.
+  `EmptyState`'s internal button) can produce this kind of small visual overlap even when the
+  copy itself is correct.

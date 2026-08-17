@@ -33,6 +33,12 @@ import type {
   SecretKey,
 } from '@devdigest/shared';
 import { parseUnifiedDiff } from './git/diff-parser.js';
+import type {
+  ActionsClient,
+  ArtifactSummary,
+  RepoRef as CiRepoRef,
+  WorkflowRunSummary,
+} from '../modules/ci/types.js';
 
 /**
  * Deterministic MOCK adapters for tests/dev — NO real network. Each mirrors the
@@ -326,5 +332,55 @@ export class MockSecretsProvider implements SecretsProvider {
   constructor(private secrets: Partial<Record<string, string>> = {}) {}
   async get(key: SecretKey): Promise<string | undefined> {
     return this.secrets[key as string];
+  }
+}
+
+// ---------- Mock GitHub Actions (D2 — CI ingest) ----------
+export interface MockActionsOptions {
+  runs?: WorkflowRunSummary[];
+  /** `workflowRunId -> ArtifactSummary[]` reported for that run. */
+  artifactsByRun?: Record<string, ArtifactSummary[]>;
+  /** `artifactId -> parsed JSON` (or `null`/absent to simulate a
+   *  download/parse failure — `downloadArtifactJson` never throws). */
+  artifactJsonByArtifact?: Record<string, unknown | null>;
+}
+
+/**
+ * Deterministic, fixture-driven mock of the D2 `ActionsClient` port —
+ * `CiIngestService`'s hermetic tests configure `runs`/`artifactsByRun`/
+ * `artifactJsonByArtifact` directly rather than hitting a real GitHub API.
+ * Two fixtures worth reusing verbatim:
+ *   - an EXPIRED artifact: `{ id: 'a-expired', name: 'devdigest-result', expired: true }`
+ *     in `artifactsByRun` — the entry is present but reported expired; the
+ *     ingest service must treat this the same as "no artifact" and never
+ *     call `downloadArtifactJson` for it.
+ *   - a MALFORMED artifact: map its id in `artifactJsonByArtifact` to a JSON
+ *     value that fails `CiResultArtifact.safeParse` (e.g.
+ *     `{ findings_count: 'not-a-number' }`) to exercise AC-46's
+ *     reject-before-persist path.
+ */
+export class MockActionsClient implements ActionsClient {
+  public listRunArtifactsCalls: string[] = [];
+  public downloadArtifactCalls: string[] = [];
+
+  constructor(private opts: MockActionsOptions = {}) {}
+
+  async listWorkflowRuns(
+    _repo: CiRepoRef,
+    _workflowFile: string,
+    _limit: number,
+  ): Promise<WorkflowRunSummary[]> {
+    return this.opts.runs ?? [];
+  }
+
+  async listRunArtifacts(_repo: CiRepoRef, runId: string): Promise<ArtifactSummary[]> {
+    this.listRunArtifactsCalls.push(runId);
+    return this.opts.artifactsByRun?.[runId] ?? [];
+  }
+
+  async downloadArtifactJson(_repo: CiRepoRef, artifactId: string): Promise<unknown | null> {
+    this.downloadArtifactCalls.push(artifactId);
+    const entry = this.opts.artifactJsonByArtifact?.[artifactId];
+    return entry === undefined ? null : entry;
   }
 }
