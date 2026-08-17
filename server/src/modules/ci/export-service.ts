@@ -223,5 +223,19 @@ function mapGitHubError(err: unknown): ExternalServiceError {
       { githubMessage: message },
     );
   }
+  // A 404 on a git-data WRITE endpoint (trees/refs/commits/blobs) for a repo
+  // the token could otherwise read (it was already listed/imported) means the
+  // token lacks write access to THIS specific repository — GitHub returns 404,
+  // never 403, for permission-denied on git-database endpoints so it doesn't
+  // confirm a private repo's existence to an under-scoped token.
+  if (/Not Found.*docs\.github\.com\/rest\/git\/(trees|refs|commits|blobs)/i.test(message)) {
+    return new ExternalServiceError(
+      'GitHub rejected the write — the configured token can read this repository but not write ' +
+        'to it. If it\'s a fine-grained PAT: confirm this repository is in the token\'s ' +
+        '"Repository access" list, and that "Contents" permission is set to Read and write ' +
+        '(not just Read). ' + message,
+      { githubMessage: message },
+    );
+  }
   return new ExternalServiceError(`GitHub export failed: ${message}`, { githubMessage: message });
 }

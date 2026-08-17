@@ -194,6 +194,19 @@ describe('CiExportService.export', () => {
     expect(repo.upsertInstallation).not.toHaveBeenCalled();
   });
 
+  it('a 404 from a git-data write endpoint (trees/refs/commits/blobs) surfaces a Contents-write-permission message, not the raw GitHub 404 (AC-23)', async () => {
+    const github = new MockGitHubClient();
+    github.commitFiles = vi
+      .fn()
+      .mockRejectedValue(new Error('Not Found - https://docs.github.com/rest/git/trees#create-a-tree'));
+    const { service, repo } = makeService({ githubClient: github });
+
+    await expect(service.export('ws-1', 'agent-1', baseInput({ action: 'open_pr' }))).rejects.toThrow(
+      /Contents.*Read and write/i,
+    );
+    expect(repo.upsertInstallation).not.toHaveBeenCalled();
+  });
+
   it('a non-"gha" target is rejected server-side, not exported (AC-26)', async () => {
     const { service, githubSpy } = makeService();
 
