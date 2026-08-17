@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Icon, Avatar, Badge, Button, Tabs } from "@devdigest/ui";
 import { RunReviewDropdown } from "../RunReviewDropdown";
 import { s } from "./styles";
@@ -28,6 +29,8 @@ export function PrDetailHeader({
   onRunStart,
   onRunsStarted,
 }: PrDetailHeaderProps) {
+  const router = useRouter();
+
   const handleRunStart = useCallback(() => {
     onRunStart();
   }, [onRunStart]);
@@ -96,6 +99,16 @@ export function PrDetailHeader({
               onRunStart={handleRunStart}
               onRunsStarted={handleRunsStarted}
             />
+          )}
+          {prId && (
+            <Button
+              kind="ghost"
+              size="sm"
+              icon="Users"
+              onClick={() => router.push(`/multi-agent?pr=${prId}`)}
+            >
+              Multi-Agent Review
+            </Button>
           )}
         </div>
       </div>

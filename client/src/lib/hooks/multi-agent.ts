@@ -5,7 +5,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { AgentRunEstimate, MultiAgentRun } from "../types";
+import type { AgentRunEstimate, MultiAgentGroupSummary, MultiAgentRun } from "../types";
 
 /** Latest multi-agent group for a PR. Polls every 4s while any column is still
  *  `running` — the belt-and-braces fallback for when SSE drops (AC-43) — and
@@ -18,6 +18,19 @@ export function useMultiAgentRun(prId: string | null) {
     enabled: !!prId,
     refetchInterval: (query) =>
       (query.state.data?.columns ?? []).some((c) => c.status === "running") ? 4000 : false,
+  });
+}
+
+/** The most recently started groups anywhere in the workspace, across every
+ *  PR (lightweight — no columns/conflicts). Backs `/multi-agent`'s "recent
+ *  runs" landing list (entered with no `?pr=`, e.g. from the sidebar), so
+ *  reopening the page shows real run history instead of forcing a fresh
+ *  Configure-run every time. `[]` is normal — nothing run in this workspace yet. */
+export function useRecentMultiAgentGroups(enabled: boolean) {
+  return useQuery({
+    queryKey: ["multi-agent-recent"],
+    queryFn: () => api.get<MultiAgentGroupSummary[]>("/multi-agent/recent"),
+    enabled,
   });
 }
 

@@ -85,6 +85,21 @@ export const MultiAgentRun = z.object({
 });
 export type MultiAgentRun = z.infer<typeof MultiAgentRun>;
 
+/** One row of GET /multi-agent/recent — a lightweight group summary (no
+ *  columns/conflicts) for the workspace-wide "recent runs" landing list. */
+export const MultiAgentGroupSummary = z.object({
+  id: z.string(),
+  pr_id: z.string(),
+  pr_number: z.number().int(),
+  pr_title: z.string(),
+  ran_at: z.string(),
+  agent_count: z.number().int(),
+  status: z.enum(['running', 'done', 'failed']),
+  total_duration_ms: z.number().int().nullable(),
+  total_cost_usd: z.number().nullable(),
+});
+export type MultiAgentGroupSummary = z.infer<typeof MultiAgentGroupSummary>;
+
 // ------------------------------------------------------------------
 // Pre-run estimates (GET /multi-agent/estimates)
 // NOTE: deliberately NOT AgentStats — that name belongs to the

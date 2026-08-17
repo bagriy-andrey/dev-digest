@@ -1,4 +1,12 @@
-import type { AgentColumn, AgentColumnFinding, AgentRunEstimate, MultiAgentRun, RunRequest, Severity } from '@devdigest/shared';
+import type {
+  AgentColumn,
+  AgentColumnFinding,
+  AgentRunEstimate,
+  MultiAgentGroupSummary,
+  MultiAgentRun,
+  RunRequest,
+  Severity,
+} from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
 import { NotFoundError } from '../../platform/errors.js';
 import type { Logger } from '../reviews/run-executor.js';
@@ -107,6 +115,40 @@ export class MultiAgentService {
     const group = await this.repo.latestGroupForPull(workspaceId, prId);
     if (!group) return null;
 
+    return this.composeGroup(prId, pull.number, group, logger);
+  }
+
+  /**
+   * The most recently started groups anywhere in the workspace (any PR),
+   * lightweight (no columns/conflicts) — backs the Multi-Agent Review page's
+   * "recent runs" landing list, so reopening the page shows real history
+   * instead of forcing a fresh Configure-run every visit.
+   */
+  async recentForWorkspace(workspaceId: string, limit: number, logger?: Logger): Promise<MultiAgentGroupSummary[]> {
+    const rows = await this.repo.recentGroupsForWorkspace(workspaceId, limit);
+    logger?.info({ workspaceId, count: rows.length }, 'multi-agent: recent groups read');
+    return rows.map((r) => ({
+      id: r.id,
+      pr_id: r.prId,
+      pr_number: r.prNumber,
+      pr_title: r.prTitle,
+      ran_at: r.ranAt.toISOString(),
+      agent_count: r.agentCount,
+      status: r.runningCount > 0 ? 'running' : r.doneCount > 0 ? 'done' : 'failed',
+      total_duration_ms: r.totalDurationMs,
+      total_cost_usd: r.totalCostUsd,
+    }));
+  }
+
+  /** Shared read-model composition for `latest`/`latestForWorkspace` — columns
+   *  (status/verdict/findings from `agent_runs` + `reviews` + `findings`),
+   *  conflicts computed fresh, totals honest under parallel fan-out. */
+  private async composeGroup(
+    prId: string,
+    prNumber: number,
+    group: { id: string; ranAt: Date },
+    logger?: Logger,
+  ): Promise<MultiAgentRun> {
     const runs = await this.repo.runsForGroup(group.id);
     const runIds = runs.map((r) => r.run_id);
     const [reviews, findings] = await Promise.all([this.repo.reviewsForRuns(runIds), this.repo.findingsForRuns(runIds)]);
@@ -169,7 +211,7 @@ export class MultiAgentService {
     return {
       id: group.id,
       pr_id: prId,
-      pr_number: pull.number,
+      pr_number: prNumber,
       ran_at: group.ranAt.toISOString(),
       agent_count: columns.length,
       total_duration_ms: totals.total_duration_ms,

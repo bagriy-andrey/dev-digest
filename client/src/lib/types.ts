@@ -65,6 +65,7 @@ export type {
 } from "@devdigest/shared";
 export type {
   MultiAgentRun,
+  MultiAgentGroupSummary,
   AgentColumn,
   AgentColumnFinding,
   Conflict,

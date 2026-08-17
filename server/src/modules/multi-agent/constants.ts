@@ -10,3 +10,6 @@ export const SEVERITY_RANK = { CRITICAL: 3, WARNING: 2, SUGGESTION: 1 } as const
 
 /** Cost-amplifying kick-off route: mirrors the existing POST /pulls/:id/review limit (AC-17). */
 export const MULTI_AGENT_RATE_LIMIT = { max: 10, timeWindow: '1 minute' } as const;
+
+/** How many groups GET /multi-agent/recent returns — the "recent runs" landing list. */
+export const RECENT_GROUPS_LIMIT = 10;

@@ -12,6 +12,7 @@
     "aggregate": "Estimated {duration} · {cost} · agents run in parallel",
     "parallelFanOut": "Agents run in parallel — wall clock ≈ the slowest agent, cost ≈ the sum of each agent's own spend.",
     "noHistory": "No run history yet",
+    "recentRunsTitle": "Recent runs",
     "startError": "Couldn't start the review — try again."
   },
   "results": {
@@ -21,6 +22,7 @@
     "duration": "Duration",
     "cost": "Cost",
     "viewTrace": "View trace",
+    "startNew": "Start new review",
     "parallelFanOut": "Parallel fan-out",
     "status": {
       "running": "Running",

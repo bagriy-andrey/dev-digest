@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 
@@ -46,6 +46,19 @@ export interface RecentRunRow {
   ran_at: Date;
 }
 
+export interface RecentGroupRow {
+  id: string;
+  prId: string;
+  ranAt: Date;
+  prNumber: number;
+  prTitle: string;
+  agentCount: number;
+  runningCount: number;
+  doneCount: number;
+  totalDurationMs: number | null;
+  totalCostUsd: number | null;
+}
+
 export class MultiAgentRepository {
   constructor(private db: Db) {}
 
@@ -68,6 +81,39 @@ export class MultiAgentRepository {
       .orderBy(desc(t.multiAgentRuns.ranAt))
       .limit(1);
     return row;
+  }
+
+  /** The most recently started groups anywhere in the workspace, across
+   *  every PR, aggregated (not fully composed — no columns/conflicts) for
+   *  the "recent runs" landing list. One grouped query, no N+1: agent-run
+   *  counts/statuses/totals are aggregated directly via SQL rather than
+   *  looping `runsForGroup` per group. */
+  async recentGroupsForWorkspace(workspaceId: string, limit: number): Promise<RecentGroupRow[]> {
+    const rows = await this.db
+      .select({
+        id: t.multiAgentRuns.id,
+        prId: t.multiAgentRuns.prId,
+        ranAt: t.multiAgentRuns.ranAt,
+        prNumber: t.pullRequests.number,
+        prTitle: t.pullRequests.title,
+        agentCount: count(t.agentRuns.id),
+        // Cast to ::int — count()/count(*) is bigint (int8) in Postgres, which
+        // the postgres-js driver returns as a string/BigInt unless narrowed;
+        // an explicit cast keeps these as plain JS numbers like `count()`
+        // (drizzle's own helper, used for `agentCount` above) already does.
+        runningCount: sql<number>`count(*) filter (where ${t.agentRuns.status} = 'running')::int`,
+        doneCount: sql<number>`count(*) filter (where ${t.agentRuns.status} = 'done')::int`,
+        totalDurationMs: sql<number | null>`max(${t.agentRuns.durationMs})`,
+        totalCostUsd: sql<number | null>`sum(${t.agentRuns.costUsd})`,
+      })
+      .from(t.multiAgentRuns)
+      .innerJoin(t.pullRequests, eq(t.pullRequests.id, t.multiAgentRuns.prId))
+      .leftJoin(t.agentRuns, eq(t.agentRuns.multiAgentRunId, t.multiAgentRuns.id))
+      .where(eq(t.multiAgentRuns.workspaceId, workspaceId))
+      .groupBy(t.multiAgentRuns.id, t.pullRequests.number, t.pullRequests.title)
+      .orderBy(desc(t.multiAgentRuns.ranAt))
+      .limit(limit);
+    return rows;
   }
 
   /** Every run belonging to a group, ordered by agent name for a stable column order. */
