@@ -8,7 +8,7 @@ import { ConfigureStep } from "./ConfigureStep";
 
 afterEach(cleanup);
 
-function Harness() {
+function Harness({ githubConfigured }: { githubConfigured?: boolean }) {
   const [triggers, setTriggers] = React.useState<string[]>(DEFAULT_TRIGGERS);
   const [postAs, setPostAs] = React.useState<PostAsOption>(DEFAULT_POST_AS);
   return (
@@ -19,14 +19,15 @@ function Harness() {
       }
       postAs={postAs}
       onPostAsChange={setPostAs}
+      githubConfigured={githubConfigured}
     />
   );
 }
 
-function renderHarness() {
+function renderHarness(githubConfigured?: boolean) {
   return render(
     <NextIntlClientProvider locale="en" messages={{ ci: ciMessages }}>
-      <Harness />
+      <Harness githubConfigured={githubConfigured} />
     </NextIntlClientProvider>,
   );
 }
@@ -87,5 +88,19 @@ describe("ConfigureStep", () => {
     expect(screen.queryByText(/not available with PAT/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Fail CI on/i)).toBeInTheDocument();
     expect(screen.getByText(/branch protection/i)).toBeInTheDocument();
+  });
+
+  it("distinguishes DevDigest's own GitHub PAT from the target repo's Actions secrets, and reflects its status", () => {
+    renderHarness(true);
+    expect(screen.getByText(ciMessages.exportWizard.devdigestAccessTitle)).toBeInTheDocument();
+    expect(screen.getByText(ciMessages.exportWizard.devdigestAccessConfigured)).toBeInTheDocument();
+    expect(screen.queryByText(ciMessages.exportWizard.devdigestAccessNotSet)).not.toBeInTheDocument();
+  });
+
+  it("warns and links to Settings when DevDigest's own GitHub PAT is not configured", () => {
+    renderHarness(false);
+    expect(screen.getByText(ciMessages.exportWizard.devdigestAccessNotSet)).toBeInTheDocument();
+    const link = screen.getByText(ciMessages.exportWizard.devdigestAccessSettingsLink).closest("a");
+    expect(link).toHaveAttribute("href", "/settings/api-keys");
   });
 });

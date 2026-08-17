@@ -92,6 +92,12 @@
       "openrouterManual": "You must add this yourself, in the target repo's Actions secrets — DevDigest cannot see or set it for you.",
       "githubTokenAuto": "Provided automatically by GitHub Actions — nothing to add."
     },
+    "devdigestAccessTitle": "DevDigest's own GitHub access",
+    "devdigestAccessBody": "Separate from the target repo's Actions secrets above — DevDigest needs its own GitHub PAT (Settings → API Keys) to commit the workflow and open the pull request on your behalf.",
+    "devdigestAccessConfigured": "Configured — DevDigest can open this PR.",
+    "devdigestAccessNotSet": "Not set — Install will fail until this is added.",
+    "devdigestAccessSettingsLink": "Add it in Settings →",
+    "installBlockedNoToken": "DevDigest's own GitHub PAT isn't configured yet, so it can't open a PR here.",
     "blockMergeTitle": "Block merge on findings",
     "blockMergeDesc": "No GitHub App required.",
     "blockMergeBody": "To block a merge on findings: set \"Fail CI on\" on this agent's CI tab so the workflow exits non-zero when it finds something, then require the \"DevDigest Review\" status check in the target repo's own branch protection settings.",

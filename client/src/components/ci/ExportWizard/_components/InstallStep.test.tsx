@@ -68,4 +68,16 @@ describe("InstallStep", () => {
     renderInstallStep();
     expect(screen.queryByText(ciMessages.exportWizard.installedPr)).not.toBeInTheDocument();
   });
+
+  it("disables Install and shows a warning when DevDigest's own GitHub PAT isn't configured", () => {
+    const { props } = renderInstallStep({ githubConfigured: false });
+    expect(screen.getByText(ciMessages.exportWizard.installBlockedNoToken)).toBeInTheDocument();
+    fireEvent.click(screen.getByText(ciMessages.exportWizard.install));
+    expect(props.onInstall).not.toHaveBeenCalled();
+  });
+
+  it("does not block Install once the token is confirmed configured", () => {
+    renderInstallStep({ githubConfigured: true });
+    expect(screen.queryByText(ciMessages.exportWizard.installBlockedNoToken)).not.toBeInTheDocument();
+  });
 });

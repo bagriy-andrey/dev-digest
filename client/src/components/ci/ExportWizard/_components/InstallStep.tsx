@@ -20,6 +20,7 @@ export function InstallStep({
   onInstall,
   isInstalling,
   prUrl,
+  githubConfigured,
 }: {
   repo: string;
   files: CiFile[];
@@ -27,7 +28,14 @@ export function InstallStep({
   onInstall: () => void;
   isInstalling: boolean;
   prUrl: string | null;
+  /** DevDigest's OWN GitHub PAT status (Settings → API Keys) — `undefined`
+   *  while still loading. When explicitly `false`, the PR-opening path would
+   *  500 server-side (`container.github()` throws `ConfigError`), so block it
+   *  here with a clear message instead of letting the user hit that. The zip
+   *  download never needs this credential and stays enabled either way. */
+  githubConfigured?: boolean;
 }) {
+  const blockedNoToken = githubConfigured === false;
   const t = useTranslations("ci");
   const [zipping, setZipping] = React.useState(false);
   const fileCount = files.length;
@@ -63,8 +71,29 @@ export function InstallStep({
         <div style={s.installCardBody}>
           {t("exportWizard.installCardBody", { repo, count: fileCount })}
         </div>
+        {blockedNoToken && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 13,
+              color: "var(--warn, var(--text-secondary))",
+            }}
+            role="alert"
+          >
+            <Icon.AlertTriangle size={14} />
+            {t("exportWizard.installBlockedNoToken")}{" "}
+            <MonoLink href="/settings/api-keys">{t("exportWizard.devdigestAccessSettingsLink")}</MonoLink>
+          </div>
+        )}
         <div>
-          <Button kind="primary" onClick={onInstall} loading={isInstalling} disabled={isInstalling}>
+          <Button
+            kind="primary"
+            onClick={onInstall}
+            loading={isInstalling}
+            disabled={isInstalling || blockedNoToken}
+          >
             {isInstalling ? t("exportWizard.installing") : t("exportWizard.install")}
           </Button>
         </div>

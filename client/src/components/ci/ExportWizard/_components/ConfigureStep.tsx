@@ -7,7 +7,7 @@
    clarification 8) — the two are deliberately not kept in sync. */
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Checkbox, FormField, Icon } from "@devdigest/ui";
+import { Checkbox, FormField, Icon, MonoLink } from "@devdigest/ui";
 import { POST_AS_OPTIONS, SECRET_ROWS, TRIGGER_OPTIONS, type PostAsOption } from "../constants";
 import { s } from "../styles";
 
@@ -22,11 +22,16 @@ export function ConfigureStep({
   onToggleTrigger,
   postAs,
   onPostAsChange,
+  githubConfigured,
 }: {
   triggers: string[];
   onToggleTrigger: (value: string, checked: boolean) => void;
   postAs: PostAsOption;
   onPostAsChange: (v: PostAsOption) => void;
+  /** DevDigest's OWN GitHub PAT status (Settings → API Keys) — `undefined`
+   *  while still loading. Distinct from the target repo's Actions secrets
+   *  shown in the table below; same env-var name, different credential. */
+  githubConfigured?: boolean;
 }) {
   const t = useTranslations("ci");
 
@@ -89,6 +94,35 @@ export function ConfigureStep({
           </tbody>
         </table>
       </FormField>
+
+      <div style={s.calloutBox}>
+        <div style={s.calloutTitle}>
+          <Icon.Lock size={15} />
+          {t("exportWizard.devdigestAccessTitle")}
+        </div>
+        <div style={s.calloutBody}>{t("exportWizard.devdigestAccessBody")}</div>
+        {githubConfigured === true && (
+          <div style={{ ...s.calloutBody, display: "flex", alignItems: "center", gap: 6, color: "var(--ok)" }}>
+            <Icon.CheckCircle size={14} />
+            {t("exportWizard.devdigestAccessConfigured")}
+          </div>
+        )}
+        {githubConfigured === false && (
+          <div
+            style={{
+              ...s.calloutBody,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              color: "var(--warn, var(--text-secondary))",
+            }}
+          >
+            <Icon.AlertTriangle size={14} />
+            {t("exportWizard.devdigestAccessNotSet")}{" "}
+            <MonoLink href="/settings/api-keys">{t("exportWizard.devdigestAccessSettingsLink")}</MonoLink>
+          </div>
+        )}
+      </div>
 
       <div style={s.calloutBox}>
         <div style={s.calloutTitle}>

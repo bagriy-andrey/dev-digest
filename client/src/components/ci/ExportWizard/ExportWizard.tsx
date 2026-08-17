@@ -10,7 +10,7 @@ import React from "react";
 import { useTranslations } from "next-intl";
 import { Button, ExportWizardSteps, Modal } from "@devdigest/ui";
 import type { CiFile, CiTarget } from "@/lib/types";
-import { useCiInstallations, useExportCi } from "@/lib/hooks";
+import { useCiInstallations, useExportCi, useSecretsStatus } from "@/lib/hooks";
 import {
   DEFAULT_BASE,
   DEFAULT_POST_AS,
@@ -55,7 +55,15 @@ export function ExportWizard({
   const [prUrl, setPrUrl] = React.useState<string | null>(null);
 
   const { data: installations } = useCiInstallations();
+  const { data: secretsStatus } = useSecretsStatus();
   const exportCi = useExportCi();
+  // `undefined` while the status is still loading — only render an explicit
+  // "not configured" state once we actually know it's false, never on a flash
+  // of missing data. This is DevDigest's OWN GitHub PAT (Settings → API Keys),
+  // a different credential from the target repo's Actions-injected GITHUB_TOKEN
+  // shown in ConfigureStep's secrets table — same env-var name, two different
+  // tokens, easy to conflate (see client/insights.md).
+  const githubConfigured = secretsStatus?.github;
 
   const conflict = findConflictingInstallation(installations, repo, agentId);
   const canContinueTarget =
@@ -185,6 +193,7 @@ export function ExportWizard({
             onToggleTrigger={handleToggleTrigger}
             postAs={postAs}
             onPostAsChange={setPostAs}
+            githubConfigured={githubConfigured}
           />
         )}
         {step === 3 && (
@@ -195,6 +204,7 @@ export function ExportWizard({
             onInstall={handleInstall}
             isInstalling={exportCi.isPending}
             prUrl={prUrl}
+            githubConfigured={githubConfigured}
           />
         )}
       </div>

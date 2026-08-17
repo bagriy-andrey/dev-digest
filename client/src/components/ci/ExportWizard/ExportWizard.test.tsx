@@ -10,11 +10,13 @@ import type { CiExport, CiFile } from "@/lib/types";
 const useCiInstallationsMock = vi.fn();
 const useExportCiMock = vi.fn();
 const useReposMock = vi.fn();
+const useSecretsStatusMock = vi.fn();
 
 vi.mock("@/lib/hooks", () => ({
   useCiInstallations: (...args: unknown[]) => useCiInstallationsMock(...args),
   useExportCi: (...args: unknown[]) => useExportCiMock(...args),
   useRepos: (...args: unknown[]) => useReposMock(...args),
+  useSecretsStatus: (...args: unknown[]) => useSecretsStatusMock(...args),
 }));
 
 import { ExportWizard } from "./ExportWizard";
@@ -60,6 +62,9 @@ const CONNECTED_REPOS = [
 function mockDefaults() {
   useCiInstallationsMock.mockReturnValue({ data: [] });
   useReposMock.mockReturnValue({ data: CONNECTED_REPOS, isSuccess: true });
+  useSecretsStatusMock.mockReturnValue({
+    data: { openai: false, anthropic: false, openrouter: true, github: true },
+  });
   useExportCiMock.mockReturnValue({
     mutate: vi.fn((_vars, opts) => opts?.onSuccess?.(exportResult())),
     isPending: false,
