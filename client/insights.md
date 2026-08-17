@@ -281,6 +281,28 @@
   explicitly provisional, not a permanent constraint — when a user later asks for exactly the
   deferred alternative, that's the mechanism working as intended, not scope creep to push back on.
 
+- **2026-08-16 — Export Wizard's Install step let a user reach a raw server 500 that a client-side
+  pre-flight check could have caught first.** `POST /agents/:id/export-ci` with `action:'open_pr'`
+  needs *DevDigest's own* `GITHUB_TOKEN` (server-side, via `SecretsProvider` — nothing to do with
+  the target repo's Actions secrets shown in `ConfigureStep`'s table) to actually call the GitHub
+  API. Nothing in the wizard checked whether that credential existed before letting the user click
+  Install, so a workspace that never configured it hit `ConfigError` → 500, surfaced only as a
+  generic toast + a scary devtools network error — no indication *why*, or that the fix is in
+  Settings. Fix: `GET /settings/secrets-status` (`useSecretsStatus()`, already existed and was
+  already used by the Settings page itself — `SettingsApiKeys.tsx`) returns a `{ github: boolean,
+  ... }` map of which provider secrets are configured, without ever exposing the values. Wired it
+  into `ExportWizard.tsx`, threaded a `githubConfigured?: boolean` prop down to `ConfigureStep`
+  (a status callout, kept visually and textually distinct from the *target repo's* secrets table
+  right above it — same env-var name, different credential, easy to conflate) and `InstallStep`
+  (disables the "Open a PR" button specifically — the zip-download degraded path is left enabled,
+  since it needs no server credential — with an inline warning + a `MonoLink` to
+  `/settings/api-keys`). ⇒ **General pattern for this codebase: before wiring any mutation that can
+  fail on a missing server-side secret, check whether a `*SecretsStatus`-shaped read already exists
+  and gate the triggering UI on it** — `useSecretsStatus()` is reusable as-is for any future
+  feature with the same shape of failure, not CI-specific.
+
+## Open Questions
+
 - **RESOLVED 2026-07-09** — both gaps closed, see the matching Session Notes entry below
   (`server/specs/blast-radius-gaps.md`). Left below for historical context, not still open.
 - **Blast Radius UI has 2 confirmed gaps vs. the original design mockup** (found 2026-07-09 by
