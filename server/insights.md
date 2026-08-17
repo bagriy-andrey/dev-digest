@@ -332,9 +332,31 @@
   branch in `modules/ci/export-service.ts`'s `mapGitHubError`, which already anticipates and names
   this exact failure). A PAT created against the current hint text will pass Settings'
   "test-connection" check (that only calls `GET /user`) but then fail at Install time with a
-  workflow-permission error. Not yet fixed — the hint string needs updating to include Contents:
-  write, Pull requests: write, Workflows: write, Metadata: read (and Actions: read if CI Runs
-  ingest is wanted too).
+  workflow-permission error. **Fixed 2026-08-16** (`githubHint` now lists Contents: read+write,
+  Pull requests: read+write, Workflows: read+write, Metadata: read, Actions: read) — but a PAT
+  created *before* the fix, or edited without revisiting every permission row, can still be
+  under-scoped; see the next entry for the specific failure this produces.
+- **A GitHub fine-grained PAT with `Contents: Read`-only (not `Read and write`) fails
+  `commitFiles`'s `createTree` call with a bare 404, not a 403 — and it looks identical to
+  "repo not in the token's access list."** `POST /repos/{o}/{r}/git/trees` (and the sibling
+  `git/refs`/`git/commits`/`git/blobs` endpoints `commitFiles` also calls) returns `404 Not Found`
+  with `documentation_url: "https://docs.github.com/rest/git/trees#create-a-tree"` when the
+  authenticated token can read the repo (confirmed here: the earlier `getRef`/`getCommit` calls in
+  the same `commitFiles` sequence succeeded, and the repo was already selectable in the wizard's
+  connected-repos dropdown, which itself needs read access) but lacks write access — GitHub does
+  this deliberately so an under-scoped token can never distinguish "repo doesn't exist" from "repo
+  exists but you can't write to it." Before this fix, `mapGitHubError` (`modules/ci/export-service.ts`)
+  only pattern-matched the *workflow-scope* 404 case, so this one fell through to a bare "GitHub
+  export failed: Not Found - <docs url>" toast with zero actionable hint — a real user hit this in
+  production testing. Fixed by matching `/Not Found.*docs\.github\.com\/rest\/git\/(trees|refs|
+  commits|blobs)/i` and naming the fix explicitly (check the fine-grained PAT's "Repository access"
+  list AND its Contents permission level — editing an *existing* token's permissions takes effect
+  immediately, no need to regenerate it). ⇒ **General lesson: when wrapping a third-party API's
+  error messages for user display, a single narrow regex for "the one permission case we happened
+  to test" will silently pass through every other permission-denied shape from the same API
+  unhelpfully — enumerate the actual sibling write endpoints being called (here: all four
+  git-data-write routes `commitFiles` touches) rather than only the one that failed first in
+  testing.**
 
 ## Session Notes
 
